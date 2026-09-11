@@ -1,0 +1,765 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/*
+  Kayıt Paneli — "Plan Görünüşü"
+
+  The public site is the drawing: a plan bounded by exterior walls, glazed on
+  its outer edges, with door swings where one room gives onto the next. That
+  envelope is its signature and stays there.
+
+  This is the other half of a drawing set: the TITLE BLOCK. The corner panel
+  that states which sheet you are looking at, who it is for, what revision, and
+  what has not been issued yet. That is exactly what a registration panel is —
+  your record, its state, what is still outstanding — so the panel is drawn as
+  one, and the sidebar is the block itself.
+
+  Everything here does information work. Ink carries every neutral state; gold
+  appears only on something you picked.
+*/
+
+@theme inline {
+  /* ── shadcn tokens, repointed at the plan palette ── */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* ── Paper and ink ── */
+  --color-paper: #efede6;
+  --color-sheet: #f7f5ef;
+  --color-grid: #dcd8cb;
+  --color-grid-fine: #e6e3d9;
+  --color-ink: #12233f;
+  --color-ink-deep: #0a1729;
+  --color-gold: #f0a500;
+  --color-rule: #a9a79e;
+  --color-rule-strong: #7c7a70;
+
+  /* Markup pencils. Package chips only — a pencil anywhere else is a bug. */
+  --color-pencil-stay: #2c6491;
+  --color-pencil-rite: #a8323c;
+  --color-pencil-gala: #1f6f62;
+
+  --font-display: var(--font-archivo), "Archivo", system-ui, sans-serif;
+  --font-body: var(--font-source-serif), "Source Serif 4", Georgia, serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+
+  --breakpoint-xsa: 24.375rem;
+  --radius: 0px;
+}
+
+:root {
+  --radius: 0rem;
+
+  --background: #efede6;
+  --foreground: #12233f;
+  --card: #f7f5ef;
+  --card-foreground: #12233f;
+  --popover: #f7f5ef;
+  --popover-foreground: #12233f;
+
+  /* Primary is poché: a solid ink fill. Never gold — gold is not an action. */
+  --primary: #12233f;
+  --primary-foreground: #efede6;
+  --secondary: #e6e3d9;
+  --secondary-foreground: #12233f;
+  --muted: #e6e3d9;
+  --muted-foreground: #6b6a61;
+  --accent: #e6e3d9;
+  --accent-foreground: #12233f;
+
+  /*
+    The one hue outside the mark and the package pencils. The brief reserves
+    an error colour to ask about rather than invent, so this is the ink-red
+    already in the pencil set, darkened until it clears 4.5:1 on paper — used
+    for destructive confirmation only, never for a field-level message.
+  */
+  --destructive: #8d2731;
+
+  --border: #a9a79e;
+  --input: #a9a79e;
+  --ring: #12233f;
+
+  /* The title block runs poché, so its tokens are the inverse. */
+  --sidebar: #12233f;
+  --sidebar-foreground: #efede6;
+  --sidebar-primary: #efede6;
+  --sidebar-primary-foreground: #12233f;
+  --sidebar-accent: #1c3050;
+  --sidebar-accent-foreground: #efede6;
+  --sidebar-border: #2b3d5c;
+  --sidebar-ring: #efede6;
+
+  /* Wall thickness: the gap between the two lines that draw one wall. */
+  --wall: 3px;
+  --h-sheet: clamp(1.35rem, 3vw, 1.9rem);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-rule);
+  }
+
+  /* Gridded paper, ruled to a 12 / 96px module — the cheapest way to make the
+     panel feel like the same product as the site. */
+  body {
+    background-color: var(--color-paper);
+    background-image:
+      linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px),
+      linear-gradient(to right, var(--color-grid-fine) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-grid-fine) 1px, transparent 1px);
+    background-size: 96px 96px, 96px 96px, 12px 12px, 12px 12px;
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+  }
+
+  /* On a poché ground the ink ring disappears, so it flips to paper. */
+  .ink-ground :focus-visible {
+    outline-color: var(--color-paper);
+  }
+
+  ::selection {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
+
+  /* Drawings do not have shadows. Depth comes from hairlines and opaque
+     panels, so shadcn's soft shadows are struck out at the source. */
+  [data-slot="button"],
+  [data-slot="input"],
+  [data-slot="card"] {
+    box-shadow: none;
+  }
+}
+
+/* ── Rooms and poché ──────────────────────────────────────────────────── */
+
+/*
+  A room: an opaque panel, walled the way a plan draws a wall — two hairlines
+  with a gap, never one thick rule. Forms and tables live in rooms; prose sits
+  directly on the gridded paper, and that alternation says which is which.
+*/
+.room {
+  position: relative;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-ink);
+  box-shadow:
+    inset 0 0 0 var(--wall) var(--color-sheet),
+    inset 0 0 0 calc(var(--wall) + 1px) var(--color-ink);
+  padding: calc(var(--wall) + 1px);
+}
+
+/* A room drawn in a single line. For nested panels, where a full wall inside
+   a wall reads as noise rather than structure. */
+.room-plain {
+  background: var(--color-sheet);
+  border: 1px solid var(--color-ink);
+}
+
+/* Poché: solid ink fill. The title block, the header, any solid bar. */
+.poche {
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/*
+  A dark panel is a print: the same module ruled in reverse, white lines at
+  10% / 5%. That is literally what a blueprint is, and it costs no new colour.
+*/
+.poche-ruled {
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.1) 1px, transparent 1px),
+    linear-gradient(to right, rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 12px 12px, 12px 12px;
+}
+
+/* ── Type roles ───────────────────────────────────────────────────────── */
+
+/*
+  Archivo carries a width axis. A plan letters its titles WIDE and tracked,
+  never tall and narrow — presence comes from horizontal extension, which is
+  why nothing here needs to be set large to carry weight.
+*/
+.t-display {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 115;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.02;
+  text-transform: uppercase;
+}
+
+.t-sheet {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 110;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.t-label {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 100;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Annotation. CAD lettering is monospaced; here that is literal, not a look.
+   This labels a field or tags a room — it is never an eyebrow over a heading. */
+.t-note {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.t-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ── The title block ──────────────────────────────────────────────────── */
+
+/*
+  The block's fields: label above value, hairline divided. A drawing's title
+  block is read by scanning down the labels, so the label is set small and the
+  value carries the weight — the inverse of a form, which is read by its inputs.
+*/
+.tb-field {
+  border-top: 1px solid color-mix(in srgb, var(--color-paper) 22%, transparent);
+  padding-block: 0.55rem;
+}
+
+.tb-field:first-child {
+  border-top: 0;
+}
+
+.tb-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-paper) 60%, transparent);
+}
+
+.tb-value {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 100;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+}
+
+/* ── Register rows ────────────────────────────────────────────────────── */
+
+/* Label left, value right, hairline between. What a schedule looks like. */
+.register {
+  border-top: 1px solid var(--color-rule);
+}
+
+.register > * {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--color-rule);
+  padding-block: 0.6rem;
+}
+
+.register dt,
+.register .reg-key {
+  color: var(--color-muted-foreground);
+}
+
+.register dd,
+.register .reg-val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── The pick ─────────────────────────────────────────────────────────── */
+
+/*
+  The grid bubble: the circle a plan puts at the end of every grid line to name
+  it. You hold exactly one görev and one paket, so both controls are real radio
+  groups and are drawn as bubbles — a square would promise you could tick
+  several.
+
+  (Boxes keep radius 0. Circles are drawing artifacts, not rounded UI.)
+*/
+.mark {
+  display: inline-block;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--color-ink);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.pick {
+  transition: background-color 0.15s ease;
+}
+
+.pick:hover .mark {
+  background: color-mix(in srgb, var(--color-ink) 22%, transparent);
+}
+
+.pick input:focus-visible + .mark {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+/*
+  Your pick is POCHÉ'D — filled solid, the way a drawing fills the thing it is
+  calling out — and its bubble is the only gold on the screen.
+
+  The two marks divide the work: poché says "this is the current one", gold
+  says "this one is YOURS". What you picked is both, so it carries both.
+*/
+.pick[data-pick="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.pick[data-pick="true"] .mark {
+  background: var(--color-gold);
+  border-color: var(--color-gold);
+}
+
+.pick[data-pick="true"] input:focus-visible + .mark {
+  outline-color: var(--color-paper);
+}
+
+.pick[data-pick="true"] .pick-muted {
+  color: color-mix(in srgb, var(--color-paper) 65%, transparent);
+}
+
+/* ── Package chips ────────────────────────────────────────────────────── */
+
+/*
+  A chip is one line of a material key: a hatched swatch and its name. The
+  hatch does the work and the colour confirms it, so the coding survives a
+  monochrome print and a reader who cannot separate the hues. Colour never
+  touches the label; the label is ink like everything else.
+*/
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.55rem 0.3rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--pencil) 60%, transparent);
+  background: color-mix(in srgb, var(--pencil) 9%, transparent);
+  color: var(--color-ink);
+}
+
+.chip .swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex: none;
+  border: 1px solid var(--pencil);
+}
+
+.chip[data-code="stay"] { --pencil: var(--color-pencil-stay); }
+.chip[data-code="stay"] .swatch {
+  background-image: repeating-linear-gradient(45deg, var(--pencil) 0 1px, transparent 1px 3px);
+}
+
+.chip[data-code="rite"] { --pencil: var(--color-pencil-rite); }
+.chip[data-code="rite"] .swatch {
+  background-image:
+    repeating-linear-gradient(45deg, var(--pencil) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, var(--pencil) 0 1px, transparent 1px 4px);
+}
+
+.chip[data-code="gala"] { --pencil: var(--color-pencil-gala); }
+.chip[data-code="gala"] .swatch {
+  background-image: radial-gradient(var(--pencil) 0.5px, transparent 0.9px);
+  background-size: 3px 3px;
+}
+
+/*
+  A void: the slot this package does not carry. Dashed, unhatched, unfilled.
+  Three of the nine packages are named for what they leave out, so the
+  exclusion is drawn rather than left for the reader to infer from an absence.
+*/
+.chip[data-void] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-ink) 32%, transparent);
+  background: none;
+  color: var(--color-muted-foreground);
+}
+
+.chip[data-void] .swatch {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-ink) 32%, transparent);
+  background-image: none;
+}
+
+/* On a poché ground the chips invert: the pencil has to read against ink. */
+.pick[data-pick="true"] .chip {
+  border-color: color-mix(in srgb, var(--color-paper) 45%, transparent);
+  background: color-mix(in srgb, var(--color-paper) 12%, transparent);
+  color: var(--color-paper);
+}
+
+/* A stamp is ink on paper; on a poché'd row it has to invert or it vanishes. */
+.pick[data-pick="true"] .stamp {
+  border-color: color-mix(in srgb, var(--color-paper) 55%, transparent);
+  color: var(--color-paper);
+}
+
+.pick[data-pick="true"] .chip[data-void] {
+  background: none;
+  color: color-mix(in srgb, var(--color-paper) 60%, transparent);
+}
+
+/* ── Not yet issued ───────────────────────────────────────────────────── */
+
+/*
+  A drawing marks work that has not been issued: dashed outline, hatched
+  ground, stamped. Here it is literal — no package carries a price yet, so a
+  priceless package is drawn as unissued rather than apologised for in prose.
+*/
+[data-draft] {
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.draft-ground {
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--color-ink) 7%, transparent) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+.stamp {
+  display: inline-block;
+  border: 1px dashed var(--color-ink);
+  color: var(--color-ink);
+  padding: 0.15rem 0.5rem;
+  opacity: 0.75;
+}
+
+/* ── Status ───────────────────────────────────────────────────────────── */
+
+/*
+  Ink carries every state. Accepted is poché — filled, settled, done. Waiting
+  is outlined — drawn, not yet filled in. No green, no amber: the difference
+  is fill, which is the same distinction the drawing makes everywhere else.
+*/
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--color-ink);
+  padding: 0.15rem 0.5rem;
+}
+
+.state[data-state="accepted"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.state[data-state="waiting"] {
+  background: none;
+  color: var(--color-ink);
+  border-style: dashed;
+}
+
+/* A state badge is ink on paper. On the poché title block it has to invert or
+   it disappears into the ground — accepted keeps its fill by swapping to
+   paper, waiting keeps its dashed outline. */
+.ink-ground .state {
+  border-color: color-mix(in srgb, var(--color-paper) 55%, transparent);
+  color: var(--color-paper);
+}
+
+.ink-ground .state[data-state="accepted"] {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  border-color: var(--color-paper);
+}
+
+.ink-ground .state[data-state="waiting"] {
+  background: none;
+  color: var(--color-paper);
+}
+
+/* ── Dimension line ───────────────────────────────────────────────────── */
+
+/* A dimension annotates a measured distance — days remaining, capacity used,
+   instalments paid. Never a divider. */
+.dim-line { height: 1px; background: var(--color-ink); }
+.dim-tick { width: 1px; background: var(--color-ink); }
+.dim-arrow { width: 0; height: 0; border-block: 3px solid transparent; }
+.dim-arrow-l { border-right: 6px solid var(--color-ink); }
+.dim-arrow-r { border-left: 6px solid var(--color-ink); }
+
+/* The measured part of a run, filled. */
+.dim-fill { height: 5px; background: var(--color-ink); }
+.dim-track {
+  height: 5px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--color-ink) 30%, transparent) 0 1px,
+    transparent 1px 5px
+  );
+  border: 1px solid color-mix(in srgb, var(--color-ink) 35%, transparent);
+}
+
+@layer components {
+/* ── Form controls ────────────────────────────────────────────────────── */
+
+/*
+  A field on a drawing is a ruled box with its annotation above it. Inputs are
+  square, hairlined, and sit on the sheet — no rounded corners, no inner
+  shadow, nothing that suggests a raised surface.
+*/
+.field-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-muted-foreground);
+  margin-bottom: 0.4rem;
+}
+
+.field-input {
+  width: 100%;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 0;
+  padding: 0.5rem 0.7rem;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  color: var(--color-ink);
+  transition: border-color 0.15s ease;
+}
+
+.field-input::placeholder {
+  color: color-mix(in srgb, var(--color-muted-foreground) 75%, transparent);
+}
+
+.field-input:hover {
+  border-color: var(--color-ink);
+}
+
+.field-input:focus-visible {
+  border-color: var(--color-ink);
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+/* An error is annotated in the margin the way a correction is marked on a
+   drawing: a rule down the side, the note beside it. It says what happened. */
+.field-error {
+  border-left: 2px solid var(--color-ink);
+  padding-left: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-ink);
+}
+
+.field-input[aria-invalid="true"] {
+  border-color: var(--color-ink);
+  border-width: 2px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+
+/*
+  The primary action is poché — filled ink, because filled means "this is the
+  one". A gold button would be a bug: gold marks what the reader chose, not
+  what the interface wants them to do next.
+*/
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0;
+  border: 1px solid var(--color-ink);
+  padding: 0.55rem 1.1rem;
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 100;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.btn-primary:hover:not(:disabled) { background: var(--color-ink-deep); }
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-ink);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+}
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* On a poché ground the button inverts, so it still reads as filled-vs-drawn. */
+.ink-ground .btn-primary {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  border-color: var(--color-paper);
+}
+
+.ink-ground .btn-secondary {
+  color: var(--color-paper);
+  border-color: color-mix(in srgb, var(--color-paper) 55%, transparent);
+}
+
+.ink-ground .btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-paper) 12%, transparent);
+}
+
+/*
+  A field in two parts — a fixed prefix and the entry — drawn as ONE ruled box.
+  Two separate bordered controls would read as two questions; a phone number is
+  one. The ring lands on the group, so tabbing into either half lights the whole
+  field.
+*/
+.field-group {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-rule-strong);
+  transition: border-color 0.15s ease;
+}
+
+.field-group:hover {
+  border-color: var(--color-ink);
+}
+
+.field-group:focus-within {
+  border-color: var(--color-ink);
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+/* Inside the group the parts are borderless: the group draws the box. */
+.field-group .field-input {
+  border: 0;
+  background: transparent;
+}
+
+.field-group .field-input:focus-visible {
+  outline: none;
+}
+
+.field-addon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-right: 1px solid var(--color-rule-strong);
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.field-addon:hover {
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+}
+
+.field-addon:focus-visible {
+  outline: none;
+}
+
+}
+
+/* ── Layout ───────────────────────────────────────────────────────────── */
+
+.wrap {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .wrap { padding-inline: 2rem; }
+}
+
+/* Long Turkish prose stays under ~72 characters. */
+.prose-measure { max-width: 40rem; }
+
+/* ── Motion ───────────────────────────────────────────────────────────── */
+
+/*
+  Motion is state feedback only, under 200ms. A form does not need a page-load
+  performance, and there is no animation library on either property.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
