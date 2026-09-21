@@ -13,10 +13,10 @@ import { event, formatDate } from "@/lib/event";
   do have, so those are stated.
 */
 const days = [
-  { n: 1, date: "4 Nisan 2027", weekday: "Pazar", note: "Tesise giriş" },
-  { n: 2, date: "5 Nisan 2027", weekday: "Pazartesi", note: "Oturumlar" },
-  { n: 3, date: "6 Nisan 2027", weekday: "Salı", note: "Oturumlar" },
-  { n: 4, date: "7 Nisan 2027", weekday: "Çarşamba", note: "Tesisten ayrılış" },
+  { n: 1, date: "1 Nisan 2027", weekday: "Perşembe", note: "Tesise giriş" },
+  { n: 2, date: "2 Nisan 2027", weekday: "Cuma", note: "Oturumlar" },
+  { n: 3, date: "3 Nisan 2027", weekday: "Cumartesi", note: "Oturumlar" },
+  { n: 4, date: "4 Nisan 2027", weekday: "Pazar", note: "Tesisten ayrılış" },
 ];
 
 export default function TakvimPage() {

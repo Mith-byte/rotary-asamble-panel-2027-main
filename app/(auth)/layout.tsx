@@ -41,10 +41,6 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             <p className="tb-value">{event.venue}</p>
             <p className="t-data mt-0.5 text-xs text-paper/55">{event.venueCity}</p>
           </div>
-          <div className="tb-field">
-            <p className="tb-label">Salon</p>
-            <p className="tb-value">{event.hall}</p>
-          </div>
         </div>
 
         {/* The block's fields do not fit beside a phone-width form, but the
@@ -58,10 +54,6 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           <div>
             <dt className="tb-label">Tesis</dt>
             <dd className="t-data text-[0.8125rem]">{event.venue}</dd>
-          </div>
-          <div>
-            <dt className="tb-label">Salon</dt>
-            <dd className="t-data text-[0.8125rem]">{event.hall}</dd>
           </div>
         </dl>
 

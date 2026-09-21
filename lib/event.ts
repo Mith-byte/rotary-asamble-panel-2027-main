@@ -7,9 +7,9 @@ export const event = {
   term: "2027–28",
   name: "Bölge Asamblesi",
   theme: "Hayalleri İnşa Ediyoruz",
-  startsAt: "2027-04-04T14:00:00+03:00",
-  endsAt: "2027-04-07T12:00:00+03:00",
-  dateLabel: "4–7 Nisan 2027",
+  startsAt: "2027-04-01T14:00:00+03:00",
+  endsAt: "2027-04-04T12:00:00+03:00",
+  dateLabel: "1-4 Nisan 2027",
   venue: "Beks Premium Resort & Spa",
   venueCity: "Kuşadası, Aydın",
   /** Everyone sits in the same hall — there are no tracks and no parallel salons. */
