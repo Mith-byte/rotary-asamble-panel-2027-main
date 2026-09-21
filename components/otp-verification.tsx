@@ -83,16 +83,16 @@ export function OtpVerification({
           type="text"
           inputMode="numeric"
           autoComplete="one-time-code"
-          placeholder="123456"
+          placeholder="12345678"
           value={otp}
-          onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+          onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
           required
           aria-invalid={error ? true : undefined}
           aria-describedby="otp-help"
           className="field-input t-data tracking-[0.3em]"
         />
         <p id="otp-help" className="mt-2 text-[0.8125rem] text-muted-foreground">
-          {email} adresine gönderdiğimiz altı haneli kodu girin.
+          {email} adresine gönderdiğimiz sekiz haneli kodu girin.
         </p>
       </div>
 

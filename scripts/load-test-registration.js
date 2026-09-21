@@ -90,7 +90,7 @@ function authenticate(phone, tag) {
   // Verify OTP
   res = http.post(
     `${SUPABASE_URL}/auth/v1/verify`,
-    JSON.stringify({ phone, token: '123456', type: 'sms' }),
+    JSON.stringify({ phone, token: '12345678', type: 'sms' }),
     { headers: supabaseHeaders(), tags: { step: 'verify_otp' } }
   );
   if (!check(res, { 'otp verified': (r) => r.status === 200 })) {
