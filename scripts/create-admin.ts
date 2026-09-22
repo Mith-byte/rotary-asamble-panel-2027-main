@@ -6,46 +6,50 @@ const admin = createClient(
   process.env.SUPABASE_SECRET_KEY!
 );
 
-const ADMIN_EMAIL = "andyanday33@gmail.com";
+const ADMIN_EMAILS = ["andyanday33@gmail.com", "gns.asena@gmail.com"];
 
 async function main() {
-  // Delete old admin user if exists
-  const { data: existing } = await admin
-    .from("profiles")
-    .select("id")
-    .eq("email", ADMIN_EMAIL)
-    .single();
+  for (const email of ADMIN_EMAILS) {
+    console.log(`\nProcessing admin: ${email}`);
+    
+    // Delete old admin user if exists
+    const { data: existing } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .single();
 
-  if (existing) {
-    console.log("Deleting old user:", existing.id);
-    await admin.auth.admin.deleteUser(existing.id);
-  }
+    if (existing) {
+      console.log("Deleting old user:", existing.id);
+      await admin.auth.admin.deleteUser(existing.id);
+    }
 
-  // Create user via Auth Admin API
-  const { data, error } = await admin.auth.admin.createUser({
-    email: ADMIN_EMAIL,
-    email_confirm: true,
-    user_metadata: { role: "admin" },
-  });
+    // Create user via Auth Admin API
+    const { data, error } = await admin.auth.admin.createUser({
+      email: email,
+      email_confirm: true,
+      user_metadata: { role: "admin" },
+    });
 
-  if (error) {
-    console.error("Failed to create user:", error.message);
-    process.exit(1);
-  }
+    if (error) {
+      console.error("Failed to create user:", error.message);
+      continue;
+    }
 
-  console.log("Created auth user:", data.user.id);
+    console.log("Created auth user:", data.user.id);
 
-  // Update profile with name
-  const { error: updateError } = await admin
-    .from("profiles")
-    .update({ first_name: "Admin", last_name: "User" })
-    .eq("id", data.user.id);
+    // Update profile with name
+    const { error: updateError } = await admin
+      .from("profiles")
+      .update({ first_name: "Admin", last_name: "User" })
+      .eq("id", data.user.id);
 
-  if (updateError) {
-    console.error("Failed to update profile:", updateError.message);
-  } else {
-    console.log("Profile updated. Admin user ready.");
-    console.log("Login with email:", ADMIN_EMAIL);
+    if (updateError) {
+      console.error("Failed to update profile:", updateError.message);
+    } else {
+      console.log("Profile updated. Admin user ready.");
+      console.log("Login with email:", email);
+    }
   }
 }
 
