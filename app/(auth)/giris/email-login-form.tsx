@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +16,30 @@ export function EmailLoginForm() {
   const router = useRouter();
   const supabase = createClient();
 
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        try {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", session.user.id)
+            .single();
+
+          const isAdmin = profile?.role === "admin";
+          router.push(isAdmin ? "/kullanicilar" : "/");
+          router.refresh();
+        } catch (err) {
+          console.error("Yönlendirme hatası:", err);
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [router, supabase]);
+
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -30,18 +54,20 @@ export function EmailLoginForm() {
   }
 
   async function handleVerifyOtp(otp: string): Promise<string | null> {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token: otp,
-      type: "email",
-    });
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: "email",
+      });
 
-    if (error) return error.message;
+      if (error) return error.message;
 
-    const isAdmin = data.user?.user_metadata?.role === "admin";
-    router.push(isAdmin ? "/kullanicilar" : "/");
-    router.refresh();
-    return null;
+      // Başarılı girişte onAuthStateChange tetiklenerek yönlendirmeyi yapacak.
+      return null;
+    } catch (err: any) {
+      return err.message || "Doğrulama sırasında bir hata oluştu";
+    }
   }
 
   async function handleResendOtp() {
