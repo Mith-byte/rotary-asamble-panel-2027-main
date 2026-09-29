@@ -1,13 +1,12 @@
 "use client";
 
-import { Users, FileCheck, BedDouble, LogOut } from "lucide-react";
+import { Users, BedDouble, LogOut } from "lucide-react";
 import { NavLink } from "@/components/nav-link";
 import { MarkLockup } from "@/components/plan/district-mark";
 import { event } from "@/lib/event";
 
 const navItems = [
   { title: "Kayıtlar", short: "Kayıt", url: "/kullanicilar", icon: Users },
-  { title: "Dekontlar", short: "Dekont", url: "/dekontlar", icon: FileCheck },
   { title: "Odalar", short: "Oda", url: "/odalar", icon: BedDouble },
 ];
 

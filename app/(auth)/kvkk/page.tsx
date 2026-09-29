@@ -35,7 +35,7 @@ export default function KVKKPage() {
             6698 sayılı Kişisel Verilerin Korunması Kanunu (&quot;KVKK&quot;)
             kapsamında, kişisel verileriniz veri sorumlusu sıfatıyla{" "}
             <strong className="text-ink">
-              Dokuz Eylül Rotaract Kulübü
+              Bostanlı Rotary Kulübü
             </strong>{" "}
             (&quot;Kuruluş&quot;) tarafından aşağıda açıklanan amaçlarla ve
             yöntemlerle işlenecektir.
@@ -47,14 +47,14 @@ export default function KVKKPage() {
             2. İşlenen Kişisel Veriler
           </h2>
           <p>
-            Zaman Çarkları Konferansı 2026 etkinliğine kayıt sürecinde aşağıdaki
+            Rotary 2440 Asamble 2027 etkinliğine kayıt sürecinde aşağıdaki
             kişisel verileriniz işlenmektedir:
           </p>
           <ul className="list-disc list-inside mt-2 space-y-1">
             <li>Kimlik bilgileri (ad, soyad, cinsiyet)</li>
             <li>İletişim bilgileri (e-posta adresi, telefon numarası)</li>
             <li>Kulüp ve üyelik bilgileri (kulüp adı, üye tipi)</li>
-            <li>Ödeme bilgileri (dekont görselleri, taksit durumu)</li>
+            <li>Ödeme bilgileri (ödeme durumu)</li>
             <li>Konaklama bilgileri (oda ataması, oda arkadaşları)</li>
           </ul>
         </section>
@@ -65,9 +65,9 @@ export default function KVKKPage() {
           </h2>
           <p>Kişisel verileriniz aşağıdaki amaçlarla işlenmektedir:</p>
           <ul className="list-disc list-inside mt-2 space-y-1">
-            <li>Konferans kayıt işlemlerinin gerçekleştirilmesi</li>
+            <li>Asamble kayıt işlemlerinin gerçekleştirilmesi</li>
             <li>Konaklama ve oda planlamasının yapılması</li>
-            <li>Ödeme takibi ve dekont doğrulama işlemlerinin yürütülmesi</li>
+            <li>Ödeme takibi işlemlerinin yürütülmesi</li>
             <li>Etkinlik organizasyonu ve katılımcı yönetimi</li>
             <li>Yasal yükümlülüklerin yerine getirilmesi</li>
           </ul>

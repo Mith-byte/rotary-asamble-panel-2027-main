@@ -50,15 +50,9 @@ export default async function HomePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("first_name, last_name, club, gorev, phone, email, pricing_type, status, dekont_url, packages!package_id(*)")
+    .select("first_name, last_name, club, gorev, phone, email, pricing_type, status, packages!package_id(*)")
     .eq("id", user!.id)
     .single();
-
-  const { data: installments } = await supabase
-    .from("installments")
-    .select("installment_number, status, dekont_url")
-    .eq("user_id", user!.id)
-    .order("installment_number", { ascending: true });
 
   // Fetch received invitations
   const admin = createAdminClient();
@@ -116,7 +110,7 @@ export default async function HomePage() {
       : null;
   const registered = !!profile?.first_name && !!pkg;
   const days = daysUntilAssembly();
-  const paidCount = (installments ?? []).filter((i) => i.status === "accepted").length;
+
   const club = getClub(profile?.club);
 
   return (
@@ -207,14 +201,7 @@ export default async function HomePage() {
                 figure={`${days} gün`}
               />
             )}
-            {(installments ?? []).length > 0 && (
-              <Dimension
-                label="Onaylanan taksit"
-                value={paidCount}
-                total={installments!.length}
-                figure={`${paidCount} / ${installments!.length}`}
-              />
-            )}
+
             <Dimension
               label="Kayıtlı katılımcı"
               value={participantCount ?? 0}

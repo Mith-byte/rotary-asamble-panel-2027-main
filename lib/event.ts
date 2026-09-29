@@ -15,7 +15,7 @@ export const event = {
   /** Everyone sits in the same hall — there are no tracks and no parallel salons. */
   hall: "Magnesia",
   host: "İzmir Dokuz Eylül Rotary Kulübü",
-  siteUrl: "https://konferanszamancarklari.com",
+  siteUrl: "https://asamble2440.com",
 } as const;
 
 /** tr-TR, Europe/Istanbul — for anything with a time. */

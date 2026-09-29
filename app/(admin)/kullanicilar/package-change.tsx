@@ -67,7 +67,7 @@ export function PackageChange({ userId, currentPackageId, packages }: PackageCha
             Paket Değiştir
           </AlertDialogTitle>
           <AlertDialogDescription className="t-note text-muted-foreground">
-            Paket değiştirildiğinde tüm dekontlar silinir ve kullanıcı odasından çıkarılır.
+            Paket değiştirildiğinde kullanıcı odasından çıkarılır ve yeni bir odaya atanır.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <select

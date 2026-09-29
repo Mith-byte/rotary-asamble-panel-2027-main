@@ -47,7 +47,7 @@ export function DeleteUser({ userId }: { userId: string }) {
             Kullanıcıyı Sil
           </AlertDialogTitle>
           <AlertDialogDescription className="t-note text-muted-foreground">
-            Kullanıcı, tüm dekontları ve oda bilgileri kalıcı olarak silinecektir. Bu işlem geri alınamaz.
+            Kullanıcı ve oda bilgileri kalıcı olarak silinecektir. Bu işlem geri alınamaz.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

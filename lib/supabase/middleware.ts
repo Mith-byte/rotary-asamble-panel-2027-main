@@ -17,11 +17,14 @@ export async function updateSession(request: NextRequest) {
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({ request });
-          const isProduction = request.nextUrl.hostname.endsWith("konferanszamancarklari.com");
+          const hostname = request.nextUrl.hostname;
+          const rootDomain = hostname.split(".").slice(-2).join(".");
+          const isLocalhost = hostname === "localhost" || hostname.startsWith("127.0.0.1") || hostname.endsWith(".local");
+          
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, {
               ...options,
-              ...(isProduction && { domain: ".konferanszamancarklari.com" }),
+              ...(!isLocalhost && { domain: `.${rootDomain}` }),
             })
           );
         },

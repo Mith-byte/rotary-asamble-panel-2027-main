@@ -34,38 +34,7 @@ export async function approveUser(userId: string) {
   return { success: true };
 }
 
-export async function approveReceipt(installmentId: string) {
-  const ctx = await verifyAdmin();
-  if (!ctx) return { error: "Yetkisiz erişim" };
-
-  const { error } = await ctx.admin
-    .from("installments")
-    .update({ status: "accepted" })
-    .eq("id", installmentId);
-
-  if (error) return { error: "Dekont onaylanamadı" };
-  return { success: true };
-}
-
 async function cleanupUserData(admin: ReturnType<typeof createAdminClient>, userId: string, roomId: string | null) {
-  // Delete all installments + dekont files
-  const { data: installments } = await admin
-    .from("installments")
-    .select("id, dekont_url")
-    .eq("user_id", userId);
-
-  if (installments && installments.length > 0) {
-    const dekontPaths = installments
-      .map((i) => i.dekont_url)
-      .filter((url): url is string => url !== null);
-
-    if (dekontPaths.length > 0) {
-      await admin.storage.from("dekontlar").remove(dekontPaths);
-    }
-
-    await admin.from("installments").delete().eq("user_id", userId);
-  }
-
   // Handle room departure
   if (roomId) {
     await admin
@@ -367,27 +336,3 @@ export async function adminAddMemberToRoom(userId: string, roomId: string) {
   return { success: true };
 }
 
-export async function rejectReceipt(installmentId: string) {
-  const ctx = await verifyAdmin();
-  if (!ctx) return { error: "Yetkisiz erişim" };
-
-  // Get dekont_url to delete from storage
-  const { data: installment } = await ctx.admin
-    .from("installments")
-    .select("dekont_url")
-    .eq("id", installmentId)
-    .single();
-
-  if (installment?.dekont_url) {
-    await ctx.admin.storage.from("dekontlar").remove([installment.dekont_url]);
-  }
-
-  // Clear dekont and reset status
-  const { error } = await ctx.admin
-    .from("installments")
-    .update({ dekont_url: null, status: "pending" })
-    .eq("id", installmentId);
-
-  if (error) return { error: "Dekont silinemedi" };
-  return { success: true };
-}

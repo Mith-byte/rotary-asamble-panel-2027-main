@@ -7,11 +7,9 @@ import { z } from "zod";
 import { useRouter } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/client";
-import { getInstallmentCount } from "@/lib/utils";
 import { COUNTRIES, type Country } from "@/lib/countries";
 import { isClub, isClubForDutyGroup } from "@/lib/clubs";
 import { dutyLabelWithTerm, getDuty } from "@/lib/duties";
-import { BankDetails } from "@/components/bank-details";
 
 import { Room, PageHead } from "@/components/plan/room";
 import { DutyPicker } from "@/components/plan/duty-picker";
@@ -89,7 +87,7 @@ export default function ProfileCompletionPage() {
   const [pricing, setPricing] = useState<PricingType>("early_bird");
   const [gorev, setGorev] = useState<string | null>(null);
   const [packageId, setPackageId] = useState<string | null>(null);
-  const [dekontFile, setDekontFile] = useState<File | null>(null);
+
   const [country, setCountry] = useState<Country>(COUNTRIES[0]);
 
   const infoForm = useForm<InfoValues>({
@@ -128,7 +126,7 @@ export default function ProfileCompletionPage() {
 
   const selected = packages.find((p) => p.id === packageId) ?? null;
   const selectedPrice = selected ? packagePrice(selected, pricing) : null;
-  const installmentPrice = selected ? selected[`${pricing}_installment_price` as const] : null;
+
   const priceIssued = selectedPrice != null;
 
   async function onSubmit() {
@@ -136,13 +134,6 @@ export default function ProfileCompletionPage() {
       setServerError("Paket seçilmedi. Paket adımına dönüp bir paket seçin.");
       return;
     }
-    if (priceIssued && !dekontFile) {
-      setServerError("Dekont eklenmedi. Ödemenizin dekontunu yükleyin.");
-      return;
-    }
-    setLoading(true);
-    setServerError(null);
-
     try {
       const {
         data: { user },
@@ -151,20 +142,6 @@ export default function ProfileCompletionPage() {
         setServerError("Oturumunuz sona erdi. Baştan giriş yapın.");
         setLoading(false);
         return;
-      }
-
-      let dekontPath: string | null = null;
-      if (dekontFile) {
-        const fileExt = dekontFile.name.split(".").pop();
-        dekontPath = `${user.id}/dekont.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from("dekontlar")
-          .upload(dekontPath, dekontFile, { upsert: true });
-        if (uploadError) {
-          setServerError(`Dekont yüklenemedi: ${uploadError.message}`);
-          setLoading(false);
-          return;
-        }
       }
 
       const info = infoForm.getValues();
@@ -179,7 +156,6 @@ export default function ProfileCompletionPage() {
           gorev,
           gender: info.gender,
           packageId,
-          dekontPath,
         }),
       });
       const result = await res.json();
@@ -352,23 +328,9 @@ export default function ProfileCompletionPage() {
           {priceIssued ? (
             <Room className="space-y-4 p-4 md:p-6">
               <h2 className="t-sheet text-[0.8125rem]">Ödeme</h2>
-              <BankDetails
-                totalPrice={selectedPrice ?? undefined}
-                installmentPrice={installmentPrice ?? undefined}
-                installmentCount={getInstallmentCount(pricing)}
-              />
-              <div>
-                <label htmlFor="dekont" className="field-label">
-                  Dekont
-                </label>
-                <input
-                  id="dekont"
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={(e) => setDekontFile(e.target.files?.[0] ?? null)}
-                  className="field-input cursor-pointer"
-                />
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Kayıt işleminizi tamamladıktan sonra, kullanıcı paneliniz üzerinden kredi kartı ile güvenle ödeme yapabilirsiniz.
+              </p>
             </Room>
           ) : (
             <Room draft className="p-4 md:p-6">
