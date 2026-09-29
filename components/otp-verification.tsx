@@ -19,7 +19,7 @@ export function OtpVerification({
   onBack,
 }: OtpVerificationProps) {
   const [otp, setOtp] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expirySeconds, setExpirySeconds] = useState(OTP_EXPIRY_SECONDS);
   const [resendCooldown, setResendCooldown] = useState(RESEND_COOLDOWN_SECONDS);
@@ -47,15 +47,21 @@ export function OtpVerification({
 
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault();
+    if (isLoading) return;
     if (expired) {
       setError("Kod süresi doldu, lütfen yeni kod gönderin");
       return;
     }
-    setLoading(true);
+    setIsLoading(true);
     setError(null);
-    const err = await onVerify(otp);
-    if (err) setError(err);
-    setLoading(false);
+    try {
+      const err = await onVerify(otp);
+      if (err) setError(err);
+    } catch (err: any) {
+      setError(err.message || "Bilinmeyen bir hata oluştu");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleResend() {
@@ -121,8 +127,8 @@ export function OtpVerification({
       )}
 
       <div className="flex flex-wrap gap-3">
-        <button type="submit" className="btn btn-primary" disabled={loading || expired}>
-          {loading ? "Doğrulanıyor…" : "Doğrula"}
+        <button type="submit" className="btn btn-primary" disabled={isLoading || expired}>
+          {isLoading ? "Doğrulanıyor…" : "Doğrula"}
         </button>
         <button type="button" className="btn btn-secondary" onClick={onBack}>
           E-postayı değiştir
