@@ -1,12 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
-import "dotenv/config";
-
+import * as dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
 const admin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SECRET_KEY!
 );
 
-const ADMIN_EMAILS = ["andyanday33@gmail.com", "gns.asena@gmail.com"];
+const ADMIN_EMAILS = ["andyanday33@gmail.com", "hello@cosmonova.studio"];
 
 async function main() {
   for (const email of ADMIN_EMAILS) {

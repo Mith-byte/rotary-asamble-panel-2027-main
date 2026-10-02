@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X } from "lucide-react";
+import { Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -17,7 +17,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { approveUser, rejectUser } from "@/lib/actions/admin";
 
-export function UserActions({ userId }: { userId: string }) {
+interface UserActionsProps {
+  userId: string;
+  status: "waiting" | "accepted";
+}
+
+export function UserActions({ userId, status }: UserActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -35,18 +40,9 @@ export function UserActions({ userId }: { userId: string }) {
     if (result.success) router.refresh();
   }
 
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        size="xs"
-        disabled={loading}
-        onClick={handleApprove}
-        className="gap-1 t-note"
-      >
-        <Check className="w-3 h-3" />
-        {loading ? "..." : "Onayla"}
-      </Button>
-
+  if (status === "accepted") {
+    // Ödendi durumundaki kullanıcı: sadece "İptal Et" aksiyonu göster
+    return (
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button
@@ -55,33 +51,45 @@ export function UserActions({ userId }: { userId: string }) {
             disabled={loading}
             className="gap-1 t-note border-destructive/30 text-destructive hover:bg-destructive/10"
           >
-            <X className="w-3 h-3" />
-            Reddet
+            <RotateCcw className="w-3 h-3" />
+            İptal Et
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent className="border-ink bg-background">
           <AlertDialogHeader>
             <AlertDialogTitle className="t-label text-ink">
-              Kullanıcıyı Sil
+              Ödemeyi İptal Et
             </AlertDialogTitle>
             <AlertDialogDescription className="t-note text-muted-foreground">
-              Bu kullanıcı ve tüm verileri kalıcı olarak silinecektir. Bu işlem
-              geri alınamaz.
+              Bu kullanıcının ödeme onayı geri alınacak ve durumu "Ödeme Bekliyor" olarak güncellenecektir.
+              Emin misiniz?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="t-note">
-              Vazgeç
-            </AlertDialogCancel>
+            <AlertDialogCancel className="t-note">Vazgeç</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleReject}
               className="t-note bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Sil
+              {loading ? "İşleniyor..." : "İptal Et"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    );
+  }
+
+  // Ödeme bekleyen kullanıcı: "Manuel Onayla" butonu göster
+  return (
+    <Button
+      size="xs"
+      disabled={loading}
+      onClick={handleApprove}
+      className="gap-1 t-note"
+      title="Sanal POS olmadan manuel olarak ödendi olarak işaretle"
+    >
+      <Check className="w-3 h-3" />
+      {loading ? "..." : "Manuel Onayla"}
+    </Button>
   );
 }

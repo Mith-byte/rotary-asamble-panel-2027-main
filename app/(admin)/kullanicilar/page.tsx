@@ -27,8 +27,8 @@ const PAGE_SIZE = 10;
 const VALID_STATUSES = ["all", "waiting", "accepted"];
 const FILTER_OPTIONS = [
   { label: "Tümü", value: "all" },
-  { label: "Beklemede", value: "waiting" },
-  { label: "Onaylı", value: "accepted" },
+  { label: "Ödeme Bekliyor", value: "waiting" },
+  { label: "Ödendi", value: "accepted" },
 ];
 
 export default async function KullanicilarPage({
@@ -114,11 +114,11 @@ export default async function KullanicilarPage({
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1.5 t-note text-yellow-400">
             <Clock className="w-3.5 h-3.5 shrink-0" />
-            {waitingCount ?? 0} Beklemede
+            {waitingCount ?? 0} Bekleyen
           </span>
           <span className="flex items-center gap-1.5 t-note text-ink">
             <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-            {acceptedCount} Onaylı
+            {acceptedCount} Ödenen
           </span>
           <ExportCsv />
         </div>
@@ -197,15 +197,18 @@ export default async function KullanicilarPage({
               <div className="hidden sm:flex items-center gap-3 shrink-0">
                 <PackageChange userId={user.id} currentPackageId={user.package_id} packages={packageOptions} />
                 {user.status === "accepted" ? (
-                  <span className="t-note text-ink px-2 py-0.5 border border-ink">
-                    Onaylı
-                  </span>
+                  <>
+                    <span className="t-note text-ink px-2 py-0.5 border border-ink">
+                      Ödendi
+                    </span>
+                    <UserActions userId={user.id} status="accepted" />
+                  </>
                 ) : (
                   <>
                     <span className="t-note text-yellow-400 px-2 py-0.5 border border-yellow-400/40 bg-yellow-400/5">
-                      Beklemede
+                      Ödeme Bekliyor
                     </span>
-                    <UserActions userId={user.id} />
+                    <UserActions userId={user.id} status="waiting" />
                   </>
                 )}
                 <DeleteUser userId={user.id} />
@@ -214,15 +217,18 @@ export default async function KullanicilarPage({
             <div className="flex sm:hidden items-center gap-3 mt-3 pt-3 border-t border-ink">
               <PackageChange userId={user.id} currentPackageId={user.package_id} packages={packageOptions} />
               {user.status === "accepted" ? (
-                <span className="t-note text-ink px-2 py-0.5 border border-ink">
-                  Onaylı
-                </span>
+                <>
+                  <span className="t-note text-ink px-2 py-0.5 border border-ink">
+                    Ödendi
+                  </span>
+                  <UserActions userId={user.id} status="accepted" />
+                </>
               ) : (
                 <>
                   <span className="t-note text-yellow-400 px-2 py-0.5 border border-yellow-400/40 bg-yellow-400/5">
-                    Beklemede
+                    Ödeme Bekliyor
                   </span>
-                  <UserActions userId={user.id} />
+                  <UserActions userId={user.id} status="waiting" />
                 </>
               )}
               <DeleteUser userId={user.id} />

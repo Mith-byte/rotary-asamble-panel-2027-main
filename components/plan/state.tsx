@@ -10,7 +10,7 @@ export function StateBadge({ status }: { status: string | null }) {
   const accepted = status === "accepted";
   return (
     <span className="state t-note" data-state={accepted ? "accepted" : "waiting"}>
-      {accepted ? "Onaylı" : "Beklemede"}
+      {accepted ? "Ödendi" : "Ödeme Bekliyor"}
     </span>
   );
 }

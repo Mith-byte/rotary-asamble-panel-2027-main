@@ -75,13 +75,20 @@ async function cleanupUserData(admin: ReturnType<typeof createAdminClient>, user
   }
 }
 
+/**
+ * Ödeme iptali: Kullanıcının ödeme onayını geri alır.
+ * Kullanıcıyı silmez, sadece 'waiting' (Ödeme Bekliyor) statüsüne çeker.
+ */
 export async function rejectUser(userId: string) {
   const ctx = await verifyAdmin();
   if (!ctx) return { error: "Yetkisiz erişim" };
 
-  const { error } = await ctx.admin.auth.admin.deleteUser(userId);
+  const { error } = await ctx.admin
+    .from("profiles")
+    .update({ status: "waiting" })
+    .eq("id", userId);
 
-  if (error) return { error: "Kullanıcı silinemedi" };
+  if (error) return { error: "Ödeme onayı geri alınamadı" };
   return { success: true };
 }
 
