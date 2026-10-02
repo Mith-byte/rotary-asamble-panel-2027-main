@@ -56,10 +56,13 @@ export function OtpVerification({
     setError(null);
     try {
       const err = await onVerify(otp);
-      if (err) setError(err);
+      if (err) {
+        setError(err);
+        setIsLoading(false);
+      }
+      // If no error, we do not reset isLoading so the button stays disabled during redirect
     } catch (err: any) {
       setError(err.message || "Bilinmeyen bir hata oluştu");
-    } finally {
       setIsLoading(false);
     }
   }

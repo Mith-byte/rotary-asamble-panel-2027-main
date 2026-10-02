@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -15,30 +15,6 @@ export function EmailLoginForm() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const supabase = createClient();
-
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session?.user) {
-        try {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("role")
-            .eq("id", session.user.id)
-            .single();
-
-          const isAdmin = profile?.role === "admin";
-          router.push(isAdmin ? "/kullanicilar" : "/");
-          router.refresh();
-        } catch (err) {
-          console.error("Yönlendirme hatası:", err);
-        }
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [router, supabase]);
 
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
@@ -55,7 +31,7 @@ export function EmailLoginForm() {
 
   async function handleVerifyOtp(otp: string): Promise<string | null> {
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: otp,
         type: "email",
@@ -63,7 +39,10 @@ export function EmailLoginForm() {
 
       if (error) return error.message;
 
-      // Başarılı girişte onAuthStateChange tetiklenerek yönlendirmeyi yapacak.
+      const isAdmin = data.user?.user_metadata?.role === "admin";
+      router.push(isAdmin ? "/kullanicilar" : "/");
+      router.refresh();
+      
       return null;
     } catch (err: any) {
       return err.message || "Doğrulama sırasında bir hata oluştu";
