@@ -18,13 +18,12 @@ export async function updateSession(request: NextRequest) {
           );
           supabaseResponse = NextResponse.next({ request });
           const hostname = request.nextUrl.hostname;
-          const rootDomain = hostname.split(".").slice(-2).join(".");
-          const isLocalhost = hostname === "localhost" || hostname.startsWith("127.0.0.1") || hostname.endsWith(".local");
+          const isProduction = hostname.endsWith("asamble2440.com");
           
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, {
               ...options,
-              ...(!isLocalhost && { domain: `.${rootDomain}` }),
+              ...(isProduction && { domain: ".asamble2440.com" }),
             })
           );
         },
