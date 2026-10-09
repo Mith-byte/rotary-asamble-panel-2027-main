@@ -12,7 +12,7 @@
   areas that needs to change — **say so before changing it**.
 
 ## The event
-- 2027–28 Dönemi Bölge Asamblesi · 4–7 Nisan 2027 · Beks Premium Resort & Spa, Kuşadası
+- 2027–28 Dönemi Bölge Asamblesi · 1–4 Nisan 2027 · Beks Premium Resort & Spa, Kuşadası
 - Sessions run in the **Magnesia** hall. Host club: İzmir Dokuz Eylül Rotary Kulübü.
 - District line for the term: **Hayalleri İnşa Ediyoruz**. Officers take office **1 Temmuz 2027**.
   The term is **2027–28** — any "2026–27" in this repo is stale.
@@ -372,7 +372,7 @@ District decisions. **Do not resolve them by guessing in code.**
   package without looking broken.
 - **Is a package price per person or per room?** The site's *"kişi başı"* / *"N kişi için"* is a
   placeholder reading, not a confirmed model.
-- **Which two nights does a `2 gece` package cover?** The event is 4–7 Nisan — three nights. Nobody
+- **Which two nights does a `2 gece` package cover?** The event is 1–4 Nisan — three nights. Nobody
   has said whether a two-night package drops the first or the last, or whether the registrant picks.
   If they pick, that is a field this panel needs and the public site does not have.
 - **Does a multi-occupancy package register one person or several?** If several, companion names are

@@ -164,9 +164,20 @@ export function SignupForm() {
       if (pkgs) {
         setPackages(pkgs as PackageRow[]);
         const paketParam = searchParams.get("paket");
-        if (paketParam && (pkgs as PackageRow[]).some((p) => p.id === paketParam)) {
-          setPackageId(paketParam);
-          setPackageFromLink(true);
+        if (paketParam) {
+          const matchedPkg =
+            (pkgs as PackageRow[]).find((p) => p.id === paketParam) ||
+            (paketParam === "gunubirlik" || paketParam === "gunubirlik-toren"
+              ? (pkgs as PackageRow[]).find((p) => p.id === "toren")
+              : null) ||
+            (paketParam === "gunubirlik-gala"
+              ? (pkgs as PackageRow[]).find((p) => p.id === "gala-toren")
+              : null);
+
+          if (matchedPkg) {
+            setPackageId(matchedPkg.id);
+            setPackageFromLink(true);
+          }
         }
       }
       if (period) setPricing(period.id as PricingType);
