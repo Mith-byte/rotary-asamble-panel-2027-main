@@ -138,7 +138,7 @@ export async function changeUserPackage(userId: string, newPackageId: string) {
   // Update profile with new package
   await ctx.admin
     .from("profiles")
-    .update({ package_id: newPackageId, dekont_url: null })
+    .update({ package_id: newPackageId })
     .eq("id", userId);
 
   // Create room if new package has capacity > 1

@@ -37,7 +37,7 @@ const PRICING_LABELS: Record<string, string> = {
 
 const tl = new Intl.NumberFormat("tr-TR", {
   style: "currency",
-  currency: "TRY",
+  currency: "EUR",
   maximumFractionDigits: 0,
 });
 

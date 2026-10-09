@@ -31,7 +31,7 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Kayıt Paneli — Bölge Asamblesi",
   description:
-    "UR 2440. Bölge — 2027–28 Dönemi Bölge Asamblesi kayıt paneli. 4–7 Nisan 2027, Kuşadası.",
+    "UR 2440. Bölge — 2027–28 Dönemi Bölge Asamblesi kayıt paneli. 2–4 Nisan 2027, Kuşadası.",
 };
 
 export default function RootLayout({

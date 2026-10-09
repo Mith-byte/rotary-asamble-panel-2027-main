@@ -16,9 +16,9 @@ export interface PackageRow extends PackageAxes {
 
 export type PricingType = "early_bird" | "round_1" | "round_2";
 
-const tl = new Intl.NumberFormat("tr-TR", {
+const eur = new Intl.NumberFormat("tr-TR", {
   style: "currency",
-  currency: "TRY",
+  currency: "EUR",
   maximumFractionDigits: 0,
 });
 
@@ -27,7 +27,7 @@ export function packagePrice(pkg: PackageRow, pricing: PricingType): number | nu
 }
 
 export function formatPrice(value: number | null): string | null {
-  return value == null ? null : tl.format(value);
+  return value == null ? null : eur.format(value);
 }
 
 /**
