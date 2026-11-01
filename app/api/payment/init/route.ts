@@ -158,16 +158,14 @@ async function handlePaymentInit(request: NextRequest) {
   const merchantOid = `usr_${user.id}_${Date.now()}`;
   // Amount formatı: Kesinlikle nokta içeren iki ondalık basamaklı string (örn: "810.00")
   const formattedAmount = Number(finalAmount).toFixed(2);
-  // Para birimi: Euro için ISO 4217 kodu 978
   const currencyCode = "978";
   const rnd = Date.now().toString();
-  // Kredi kartı bilgileri bankanın ortak ekranında girileceğinden kesinlikle "3d_pay_hosting"
   const storeType = "3d_pay_hosting";
 
-  // 6. NESTPAY SHA-512 HASH İMZASI OLUŞTURMA
+  // 6. NESTPAY SHA-512 HASH İMZASI OLUŞTURMA (ver2)
   // Format: clientId + oid + amount + okUrl + failUrl + rnd + storeKey
-  const hashPlain = `${clientId}${merchantOid}${formattedAmount}${callbackUrl}${callbackUrl}${rnd}${storeKey}`;
-  const hash = crypto.createHash("sha512").update(hashPlain, "utf-8").digest("base64");
+  const hashString = `${clientId}${merchantOid}${formattedAmount}${callbackUrl}${callbackUrl}${rnd}${storeKey}`;
+  const hash = crypto.createHash("sha512").update(hashString).digest("base64");
 
   // 7. VERİTABANINA İŞLEM KAYDI (payment_transactions)
   const { error: txError } = await admin.from("payment_transactions").insert({
@@ -273,10 +271,11 @@ async function handlePaymentInit(request: NextRequest) {
 
     <form method="POST" action="${escapeHtml(gateUrl)}">
       <input type="hidden" name="clientid" value="${escapeHtml(clientId)}" />
-      <input type="hidden" name="storetype" value="${escapeHtml(storeType)}" />
+      <input type="hidden" name="storetype" value="3d_pay_hosting" />
       <input type="hidden" name="hash" value="${escapeHtml(hash)}" />
+      <input type="hidden" name="hashAlgorithm" value="ver2" />
       <input type="hidden" name="amount" value="${escapeHtml(formattedAmount)}" />
-      <input type="hidden" name="currency" value="${escapeHtml(currencyCode)}" />
+      <input type="hidden" name="currency" value="978" />
       <input type="hidden" name="oid" value="${escapeHtml(merchantOid)}" />
       <input type="hidden" name="okUrl" value="${escapeHtml(callbackUrl)}" />
       <input type="hidden" name="failUrl" value="${escapeHtml(callbackUrl)}" />
@@ -298,6 +297,8 @@ async function handlePaymentInit(request: NextRequest) {
   </script>
 </body>
 </html>`;
+
+  console.log("NESTPAY HTML FORM:", htmlString);
 
   return new NextResponse(htmlString, {
     status: 200,
