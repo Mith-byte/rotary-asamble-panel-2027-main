@@ -21,11 +21,28 @@ CREATE POLICY "Users can only view own or roommate guests"
 CREATE OR REPLACE FUNCTION public.protect_sensitive_profile_fields()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY DEFINER
 AS $$
+DECLARE
+  v_jwt_role text;
 BEGIN
-  -- Eğer istek service_role (Admin API) tarafından yapılıyorsa tüm güncellemelere izin ver
-  IF current_user = 'service_role' OR COALESCE(current_setting('request.jwt.claim.role', true), '') = 'service_role' THEN
+  -- 1. Service role veya veritabanı yöneticisi kontrolü
+  BEGIN
+    v_jwt_role := coalesce(
+      auth.role(),
+      (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
+      current_setting('request.jwt.claim.role', true),
+      current_setting('role', true)
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_jwt_role := NULL;
+  END;
+
+  -- Backend Admin Client (service_role), postgres veya supabase_admin ise tüm güncellemelere izin ver
+  IF v_jwt_role = 'service_role'
+     OR current_user IN ('service_role', 'postgres', 'supabase_admin')
+     OR coalesce(current_setting('role', true), '') IN ('service_role', 'postgres')
+     OR auth.uid() IS NULL
+  THEN
     RETURN NEW;
   END IF;
 
