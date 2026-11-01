@@ -121,13 +121,21 @@ export default async function OdaPlanlamaPage() {
     );
   }
 
-  // Fetch room members (admin bypasses RLS so we can see all roommates)
-  const { data: members } = await admin
-    .from("profiles")
-    .select("id, first_name, last_name, club")
-    .eq("room_id", roomId);
+  // Fetch room members and guests (admin bypasses RLS so we can see all roommates)
+  const [{ data: members }, { data: guestsRaw }] = await Promise.all([
+    admin.from("profiles").select("id, first_name, last_name, club").eq("room_id", roomId),
+    admin.from("room_guests").select("id, first_name, last_name, club, guest_type, age").eq("room_id", roomId),
+  ]);
 
   const roomMembers = (members ?? []) as RoomMember[];
+  const roomGuests = (guestsRaw ?? []) as Array<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    club: string | null;
+    guest_type: "adult" | "child";
+    age: number | null;
+  }>;
 
   // Check if current user is room creator
   const { data: room } = await supabase
@@ -163,14 +171,15 @@ export default async function OdaPlanlamaPage() {
     );
   }
 
-  const emptySlots = capacity! - roomMembers.length - sentInvitations.length;
+  const totalOccupants = roomMembers.length + roomGuests.length;
+  const emptySlots = Math.max(0, capacity! - totalOccupants - sentInvitations.length);
   const canInvite = isCreator && emptySlots > 0;
 
   return (
     <div className="space-y-7">
       <PageHead
         tag="Oda"
-        figure={`${roomMembers.length}/${capacity} KİŞİ`}
+        figure={`${totalOccupants}/${capacity} KİŞİ`}
         title="Oda planlama"
         lead="Odanızdaki yerler aşağıda. Boş yer kaldıysa oda arkadaşınızı davet edebilirsiniz."
       >
@@ -183,7 +192,7 @@ export default async function OdaPlanlamaPage() {
       <Room className="p-4 md:p-6">
         <Dimension
           label="Dolu yer"
-          value={roomMembers.length}
+          value={totalOccupants}
           total={capacity!}
           figure={emptySlots > 0 ? `${emptySlots} boş yer` : "Oda dolu"}
         />
@@ -219,6 +228,28 @@ export default async function OdaPlanlamaPage() {
                   Siz
                 </span>
               )}
+            </li>
+          ))}
+
+          {/* Oda arkadaşı ve aile misafirleri */}
+          {roomGuests.map((guest) => (
+            <li
+              key={guest.id}
+              className="flex flex-wrap items-center gap-3 border-b border-rule py-3 bg-ink/5 px-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="t-label truncate text-[0.9375rem]">
+                  {guest.first_name} {guest.last_name}
+                </p>
+                <p className="truncate text-[0.8125rem] text-muted-foreground">
+                  {guest.guest_type === "child"
+                    ? `Çocuk Misafir ${guest.age != null ? `(${guest.age} yaş)` : ""}`
+                    : "Oda Arkadaşı / 2. Yetişkin"}
+                </p>
+              </div>
+              <span className="state t-note" data-state="accepted">
+                {guest.guest_type === "child" ? "Çocuk" : "Misafir"}
+              </span>
             </li>
           ))}
 

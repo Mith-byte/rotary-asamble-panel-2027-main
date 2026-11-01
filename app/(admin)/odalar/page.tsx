@@ -48,17 +48,23 @@ export default async function OdalarPage({
   // Fetch all rooms with creator info
   const { data: allRooms } = await admin
     .from("rooms")
-    .select("id, capacity, created_by, profiles!created_by(first_name, last_name)")
+    .select("id, capacity, remaining_capacity, created_by, profiles!created_by(first_name, last_name)")
     .order("created_at", { ascending: true });
 
-  const rooms = (allRooms ?? []) as unknown as Room[];
+  const rooms = (allRooms ?? []) as unknown as (Room & { remaining_capacity?: number })[];
 
-  // Fetch all profiles that have a room_id (batch query instead of N+1)
+  // Fetch all profiles and room_guests that have a room_id (batch query instead of N+1)
   const roomIds = rooms.map((r) => r.id);
-  const { data: allMembers } = await admin
-    .from("profiles")
-    .select("id, first_name, last_name, club, gorev, gender, room_id, package_id, packages!package_id(name)")
-    .in("room_id", roomIds);
+  const [{ data: allMembers }, { data: allGuests }] = await Promise.all([
+    admin
+      .from("profiles")
+      .select("id, first_name, last_name, club, gorev, gender, room_id, package_id, packages!package_id(name)")
+      .in("room_id", roomIds),
+    admin
+      .from("room_guests")
+      .select("id, first_name, last_name, club, gender, room_id, guest_type, age")
+      .in("room_id", roomIds),
+  ]);
 
   const members = (allMembers ?? []) as unknown as (RoomMember & { room_id: string })[];
 
@@ -68,6 +74,23 @@ export default async function OdalarPage({
     const list = membersByRoom.get(m.room_id) ?? [];
     list.push(m);
     membersByRoom.set(m.room_id, list);
+  }
+
+  // Merge room_guests into membersByRoom
+  for (const g of (allGuests ?? []) as any[]) {
+    const list = membersByRoom.get(g.room_id) ?? [];
+    list.push({
+      id: g.id,
+      first_name: g.first_name,
+      last_name: g.last_name,
+      club: g.club ?? "Misafir",
+      gorev: g.guest_type === "child" ? `Çocuk (${g.age ?? 0} Yaş)` : "Oda Arkadaşı / 2. Yetişkin",
+      gender: g.gender,
+      package_id: null,
+      packages: null,
+      room_id: g.room_id,
+    });
+    membersByRoom.set(g.room_id, list);
   }
 
   // Fetch users with 1-person packages (they don't have rooms)
@@ -84,7 +107,9 @@ export default async function OdalarPage({
   // Build enriched room data
   const enrichedRooms = rooms.map((room) => {
     const roomMembers = membersByRoom.get(room.id) ?? [];
-    const isFull = roomMembers.length >= room.capacity;
+    const isFull =
+      (room.remaining_capacity !== undefined && room.remaining_capacity === 0) ||
+      roomMembers.length >= room.capacity;
     return { ...room, members: roomMembers, isFull, isSoloPackage: false };
   });
 
@@ -232,7 +257,9 @@ export default async function OdalarPage({
                   ) : (
                     <span className="flex items-center gap-1.5 t-note text-yellow-400 px-2 py-1 border border-yellow-400/40 bg-yellow-400/5 w-fit">
                       <Clock className="w-3.5 h-3.5 shrink-0" />
-                      Boş Yer Var
+                      {room.capacity - room.members.length === 1
+                        ? "1 Kişilik Boş Yer Var"
+                        : "Boş Yer Var"}
                     </span>
                   )}
                   {!room.isSoloPackage && <DeleteRoom roomId={room.id} />}

@@ -198,6 +198,19 @@ export async function respondToInvitation(
 
   if (joinError) return { error: "Odaya katılınamadı" };
 
+  // Update remaining capacity
+  const { count: newCount } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("room_id", invitation.room_id);
+
+  await admin
+    .from("rooms")
+    .update({
+      remaining_capacity: Math.max(0, room.capacity - (newCount ?? 1)),
+    })
+    .eq("id", invitation.room_id);
+
   // Mark accepted
   await admin
     .from("room_invitations")
@@ -286,11 +299,14 @@ export async function leaveRoom() {
   if (remainingMembers.length === 0) {
     // Old room is empty, delete it
     await admin.from("rooms").delete().eq("id", roomId);
-  } else if (wasCreator) {
-    // Transfer creator to first remaining member
+  } else {
+    // Update remaining capacity and transfer creator if leaving user was creator
     await admin
       .from("rooms")
-      .update({ created_by: remainingMembers[0].id })
+      .update({
+        remaining_capacity: Math.max(0, (capacity ?? 2) - remainingMembers.length),
+        ...(wasCreator ? { created_by: remainingMembers[0].id } : {}),
+      })
       .eq("id", roomId);
   }
 

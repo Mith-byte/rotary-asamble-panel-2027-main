@@ -48,10 +48,15 @@ export async function GET() {
   const headers = ["Ad", "Soyad", "E-posta", "Telefon", "Kulüp", "Görev", "Cinsiyet", "Paket", "Kayıt Dönemi", "Durum"];
 
   const escapeField = (val: string) => {
-    if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-      return `"${val.replace(/"/g, '""')}"`;
+    let clean = val;
+    // CSV Formula Injection Savunması: Hücre =, +, -, @, tab veya satırbaşı ile başlıyorsa tek tırnakla kaçış yap
+    if (/^[=+\-@\t\r]/.test(clean)) {
+      clean = `'${clean}`;
     }
-    return val;
+    if (clean.includes(",") || clean.includes('"') || clean.includes("\n")) {
+      return `"${clean.replace(/"/g, '""')}"`;
+    }
+    return clean;
   };
 
   const pricingLabels: Record<string, string> = {

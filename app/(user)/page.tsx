@@ -50,7 +50,7 @@ export default async function HomePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("first_name, last_name, club, gorev, phone, email, pricing_type, status, packages!package_id(*)")
+    .select("first_name, last_name, club, gorev, phone, email, pricing_type, status, total_amount, has_roommate, room_id, packages!package_id(*)")
     .eq("id", user!.id)
     .single();
 
@@ -181,8 +181,18 @@ export default async function HomePage() {
               )}
             </div>
             <Register>
-              <Row label="Paket">{pkg?.name ?? "—"}</Row>
-              <Row label="Ücret">{price != null ? tl.format(price) : <PriceNotIssued />}</Row>
+              <Row label="Paket">
+                {pkg?.capacity === 3
+                  ? pkg.name?.replace(/^3 Kişi/i, "Aile Odası")
+                  : pkg?.name ?? "—"}
+              </Row>
+              <Row label="Toplam Ücret">
+                {profile?.total_amount != null
+                  ? tl.format(Number(profile.total_amount))
+                  : price != null
+                  ? tl.format(price)
+                  : <PriceNotIssued />}
+              </Row>
             </Register>
             {pkg && (
               <div className="mt-3">

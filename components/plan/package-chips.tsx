@@ -22,7 +22,13 @@ export function PackageChips({ pkg }: { pkg: PackageAxes }) {
         <span className="chip t-note" data-code="stay" {...(stay ? {} : { "data-void": "" })}>
           <span className="swatch" aria-hidden="true" />
           {stay
-            ? `${pkg.nights} gece${pkg.capacity && pkg.capacity > 1 ? ` · ${pkg.capacity} kişi` : ""}`
+            ? `${pkg.nights} gece${
+                pkg.capacity === 3
+                  ? " · Aile Odası"
+                  : pkg.capacity && pkg.capacity > 1
+                  ? ` · ${pkg.capacity} kişi`
+                  : ""
+              }`
             : "Konaklama yok"}
         </span>
       </li>

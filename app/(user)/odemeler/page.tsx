@@ -3,14 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { PageHead, Room } from "@/components/plan/room";
 import { Dimension } from "@/components/plan/dimension";
 import { Register, Row } from "@/components/plan/register";
-import { CheckCircle, Clock, CreditCard } from "lucide-react";
+import { CheckCircle, Clock, Users, Baby } from "lucide-react";
 import { PayButton } from "./pay-button";
-
-const tl = new Intl.NumberFormat("tr-TR", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
+import { formatEuro } from "@/lib/pricing";
 
 export default async function OdemelerPage({
   searchParams,
@@ -27,7 +22,7 @@ export default async function OdemelerPage({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("status, pricing_type, packages!package_id(name, early_bird_price, round_1_price, round_2_price)")
+    .select("status, pricing_type, total_amount, has_roommate, room_id, packages!package_id(name, capacity, early_bird_price, round_1_price, round_2_price)")
     .eq("id", user!.id)
     .single();
 
@@ -42,9 +37,40 @@ export default async function OdemelerPage({
 
   const pkg = profile?.packages as any;
   const pricingType = profile?.pricing_type ?? "early_bird";
-  const totalPrice: number | null = pkg?.[`${pricingType}_price`] ?? null;
+  const defaultBasePrice: number | null = pkg?.[`${pricingType}_price`] ?? null;
+
+  // Profilde kayıtlı total_amount varsa onu kullan, yoksa paket baz fiyatını al
+  const totalPrice: number | null =
+    profile?.total_amount != null
+      ? Number(profile.total_amount)
+      : defaultBasePrice;
+
   const priceIssued = totalPrice != null;
   const isPaid = profile?.status === "accepted";
+
+  // Oda misafirlerini çek (Döküm için)
+  let roomGuests: Array<{
+    guest_type: "adult" | "child";
+    first_name: string;
+    last_name: string;
+    price: number;
+    age: number | null;
+  }> = [];
+
+  if (profile?.room_id) {
+    const { data: guests } = await admin
+      .from("room_guests")
+      .select("guest_type, first_name, last_name, price, age")
+      .eq("room_id", profile.room_id);
+
+    if (guests) {
+      roomGuests = guests as any;
+    }
+  }
+
+  const packageName = pkg?.capacity === 3
+    ? pkg.name?.replace(/^3 Kişi/i, "Aile Odası")
+    : pkg?.name;
 
   // POS'tan dönüş durumu (success/failed query param)
   const returnStatus = params.status;
@@ -56,7 +82,7 @@ export default async function OdemelerPage({
         title="Ödemeleriniz"
         lead={
           priceIssued && !isPaid
-            ? "Kayıt işleminizi tamamlamak için ödemenizi sanal pos üzerinden güvenle gerçekleştirebilirsiniz."
+            ? "Kayıt işleminizi tamamlamak için ödemenizi sanal POS üzerinden güvenle gerçekleştirebilirsiniz."
             : undefined
         }
       />
@@ -104,8 +130,32 @@ export default async function OdemelerPage({
               label="Ödenen tutar"
               value={isPaid ? totalPrice : 0}
               total={totalPrice}
-              figure={`${tl.format(isPaid ? totalPrice : 0)} / ${tl.format(totalPrice)}`}
+              figure={`${formatEuro(isPaid ? totalPrice : 0)} / ${formatEuro(totalPrice)}`}
             />
+          </Room>
+
+          {/* Oda ve Misafir Fiyat Detayları */}
+          <Room className="p-4 md:p-6">
+            <h2 className="t-sheet mb-3 text-[0.8125rem]">Rezervasyon & Fiyat Dökümü</h2>
+            <Register>
+              <Row label="Seçili Paket">{packageName ?? "—"}</Row>
+              <Row label="Kayıt Sahibi">{formatEuro(defaultBasePrice)}</Row>
+              {roomGuests.map((g, idx) => (
+                <Row
+                  key={idx}
+                  label={
+                    g.guest_type === "child"
+                      ? `Çocuk (${g.first_name} ${g.last_name}${g.age != null ? `, ${g.age} yaş` : ""})`
+                      : `2. Yetişkin (${g.first_name} ${g.last_name})`
+                  }
+                >
+                  {g.price === 0 ? "Ücretsiz (0 €)" : formatEuro(g.price)}
+                </Row>
+              ))}
+              <Row label="Toplam Oda Tutarı">
+                <span className="font-semibold text-ink">{formatEuro(totalPrice)}</span>
+              </Row>
+            </Register>
           </Room>
 
           {/* İşlem geçmişi */}
@@ -114,7 +164,7 @@ export default async function OdemelerPage({
               <h2 className="t-sheet mb-3 text-[0.8125rem]">Son İşlem</h2>
               <Register>
                 <Row label="Durum">
-                  {lastTx.status === "completed" ? (
+                  {lastTx.status === "completed" || (lastTx.status as string) === "paid" || (lastTx.status as string) === "success" ? (
                     <span className="text-ink font-medium">Tamamlandı</span>
                   ) : lastTx.status === "failed" ? (
                     <span className="text-destructive font-medium">Başarısız</span>
@@ -122,7 +172,7 @@ export default async function OdemelerPage({
                     <span className="text-yellow-400 font-medium">Beklemede</span>
                   )}
                 </Row>
-                <Row label="Tutar">{tl.format(lastTx.amount)}</Row>
+                <Row label="Tutar">{formatEuro(lastTx.amount)}</Row>
                 {lastTx.pos_transaction_id && (
                   <Row label="İşlem No">{lastTx.pos_transaction_id}</Row>
                 )}
@@ -155,9 +205,8 @@ export default async function OdemelerPage({
             ) : (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Toplam tutar olan <strong>{tl.format(totalPrice)}</strong> ödemesini aşağıdaki butona
-                  tıklayarak sanal POS üzerinden yapabilirsiniz. Kredi kartı taksit seçenekleri
-                  ödeme sayfasında sunulacaktır.
+                  Toplam tutar olan <strong>{formatEuro(totalPrice)}</strong> ödemesini aşağıdaki butona
+                  tıklayarak İş Bankası Sanal POS sistemi üzerinden güvenle gerçekleştirebilirsiniz.
                 </p>
                 <PayButton amount={totalPrice} />
               </div>

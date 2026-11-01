@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,6 +13,12 @@ import { OtpVerification } from "@/components/otp-verification";
 import { COUNTRIES, type Country } from "@/lib/countries";
 import { isClub, isClubForDutyGroup } from "@/lib/clubs";
 import { dutyLabelWithTerm, getDuty } from "@/lib/duties";
+import {
+  RoomOccupantsForm,
+  type AdultGuest,
+  type ChildGuest,
+} from "@/components/plan/room-occupants-form";
+import { calculateReservationPrice, formatEuro } from "@/lib/pricing";
 
 import { Room } from "@/components/plan/room";
 import { DutyPicker } from "@/components/plan/duty-picker";
@@ -125,6 +131,23 @@ export function SignupForm() {
   const [packageId, setPackageId] = useState<string | null>(null);
   const [packageFromLink, setPackageFromLink] = useState(false);
 
+  // Oda arkadaşı ve aile odası misafir state'leri
+  const [hasRoommate, setHasRoommate] = useState(false);
+  const [roommate, setRoommate] = useState<AdultGuest>({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    gender: "Erkek",
+  });
+  const [adult2, setAdult2] = useState<AdultGuest>({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    gender: "Kadın",
+  });
+  const [childCount, setChildCount] = useState<number>(0);
+  const [childrenList, setChildrenList] = useState<ChildGuest[]>([]);
+  const [occupantErrors, setOccupantErrors] = useState<Record<string, string>>({});
 
   const [country, setCountry] = useState<Country>(COUNTRIES[0]);
 
@@ -201,6 +224,18 @@ export function SignupForm() {
   const selected = packages.find((p) => p.id === packageId) ?? null;
   const selectedPrice = selected ? packagePrice(selected, pricing) : null;
 
+  const calculatedReservation = useMemo(() => {
+    if (!selected || selectedPrice == null) return null;
+    return calculateReservationPrice({
+      adultPrice: selectedPrice,
+      capacity: selected.capacity ?? 1,
+      hasRoommate,
+      children: selected.capacity === 3 ? childrenList.slice(0, childCount) : [],
+    });
+  }, [selected, selectedPrice, hasRoommate, childrenList, childCount]);
+
+  const displayTotal = calculatedReservation?.totalAmount ?? selectedPrice;
+
   /* No figure has been issued for any package. Until one is, there is nothing
      to transfer and nothing to prove — so the dekont cannot be required. */
   const priceIssued = selectedPrice != null;
@@ -233,7 +268,37 @@ export function SignupForm() {
       setServerError("Paket seçilmedi. Paket adımına dönüp bir paket seçin.");
       return;
     }
+
+    // Oda misafirleri validasyonu
+    setOccupantErrors({});
+    const errs: Record<string, string> = {};
+
+    if (selected?.capacity === 2 && hasRoommate) {
+      if (!roommate.firstName.trim()) errs["roommate.firstName"] = "Ad zorunludur";
+      if (!roommate.lastName.trim()) errs["roommate.lastName"] = "Soyad zorunludur";
+    }
+
+    if (selected?.capacity === 3) {
+      if (!adult2.firstName.trim()) errs["adult2.firstName"] = "2. Yetişkin adı zorunludur";
+      if (!adult2.lastName.trim()) errs["adult2.lastName"] = "2. Yetişkin soyadı zorunludur";
+
+      for (let i = 0; i < childCount; i++) {
+        const c = childrenList[i];
+        if (!c?.firstName?.trim()) errs[`children.${i}.firstName`] = "Çocuk adı zorunludur";
+        if (!c?.lastName?.trim()) errs[`children.${i}.lastName`] = "Çocuk soyadı zorunludur";
+        if (!c?.birthDate) errs[`children.${i}.birthDate`] = "Doğum tarihi zorunludur";
+      }
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setOccupantErrors(errs);
+      setServerError("Lütfen oda misafirleri bilgilerindeki zorunlu alanları doldurun.");
+      return;
+    }
+
     try {
+      setLoading(true);
+      setServerError(null);
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -255,6 +320,10 @@ export function SignupForm() {
           gorev,
           gender: info.gender,
           packageId,
+          hasRoommate,
+          roommate: hasRoommate ? roommate : null,
+          adult2: selected?.capacity === 3 ? adult2 : null,
+          children: selected?.capacity === 3 ? childrenList.slice(0, childCount) : [],
         }),
       });
       const result = await res.json();
@@ -413,9 +482,13 @@ export function SignupForm() {
             <h2 className="t-sheet mb-3 text-[0.8125rem]">Seçiminiz</h2>
             <Register>
               <Row label="Görev">{dutyLabelWithTerm(gorev) ?? "—"}</Row>
-              <Row label="Paket">{selected?.name ?? "—"}</Row>
+              <Row label="Paket">
+                {selected?.capacity === 3
+                  ? selected.name.replace(/^3 Kişi/i, "Aile Odası")
+                  : selected?.name ?? "—"}
+              </Row>
               <Row label="Ücret">
-                {formatPrice(selectedPrice) ?? <PriceNotIssued />}
+                {displayTotal != null ? formatEuro(displayTotal) : <PriceNotIssued />}
               </Row>
             </Register>
             {selected && (
@@ -492,6 +565,25 @@ export function SignupForm() {
               </select>
             </div>
           </Room>
+
+          {/* Oda arkadaşı ve Aile Odası Misafir Bilgileri */}
+          {selected && selected.capacity && selected.capacity > 1 && (
+            <RoomOccupantsForm
+              capacity={selected.capacity}
+              adultPrice={selectedPrice}
+              hasRoommate={hasRoommate}
+              onHasRoommateChange={setHasRoommate}
+              roommate={roommate}
+              onRoommateChange={setRoommate}
+              adult2={adult2}
+              onAdult2Change={setAdult2}
+              childCount={childCount}
+              onChildCountChange={setChildCount}
+              childrenList={childrenList}
+              onChildrenListChange={setChildrenList}
+              errors={occupantErrors}
+            />
+          )}
 
           {priceIssued ? (
             <Room className="space-y-4 p-4 md:p-6">

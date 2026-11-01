@@ -19,7 +19,8 @@ export type PricingType = "early_bird" | "round_1" | "round_2";
 const eur = new Intl.NumberFormat("tr-TR", {
   style: "currency",
   currency: "EUR",
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
 });
 
 export function packagePrice(pkg: PackageRow, pricing: PricingType): number | null {
@@ -132,7 +133,9 @@ function PackageGroup({
                     className="sr-only"
                   />
                   <span className="mark" aria-hidden="true" />
-                  <span className="t-label text-[0.9375rem]">{pkg.name}</span>
+                  <span className="t-label text-[0.9375rem]">
+                    {pkg.capacity === 3 ? pkg.name.replace(/^3 Kişi/i, "Aile Odası") : pkg.name}
+                  </span>
                   <span className="ml-auto shrink-0">
                     {price ? (
                       <span className="t-data text-[0.9375rem]">{price}</span>
