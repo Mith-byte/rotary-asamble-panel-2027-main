@@ -1,35 +1,40 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse, type NextRequest } from "next/server";
-import crypto from "crypto";
 import { calculateReservationPrice } from "@/lib/pricing";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 /**
- * İş Bankası Sanal POS (Nestpay / Est3D) Ödeme Başlatma API Rotası
+ * İş Bankası "İş'le Öde - Alışveriş Başlatma" 2 Aşamalı JWT Yetkilendirme & Ödeme Rotası
  *
- * 1. storetype="3d_pay_hosting" (Kart bilgileri İş Bankası ortak ödeme sayfasında alınır).
- * 2. Doğrudan text/html formatında otomatik submit olan (auto-submit) HTML formu döner.
- * 3. Amount tutarı kesinlikle 2 ondalık basamaklı nokta ile formatlanmış string olarak iletilir (örn: "810.00").
- * 4. Hem POST (form submit) hem de GET (window.location.href) isteklerini destekler.
+ * 1. Aşama (JWT Token):
+ *    https://api.test.isbank.com.tr/api/sandbox-isbank/v1/jwt/ adresine
+ *    X-isbank-Client-Id ve X-isbank-Client-Secret başlıklarıyla istek atılarak Bearer Token alınır.
+ *
+ * 2. Aşama (Alışveriş Başlatma):
+ *    Alınan Bearer token "Authorization: Bearer <token>" başlığına eklenerek
+ *    İş'le Öde Alışveriş Başlatma API'sine sepet tutarı (Euro 978) ile ödeme başlatma isteği gönderilir.
+ *
+ * 3. Aşama (Yönlendirme):
+ *    Dönen ödeme linkine (paymentUrl / redirectUrl) kullanıcı HTTP 303 ile doğrudan yönlendirilir.
  */
 async function handlePaymentInit(request: NextRequest) {
-  // 1. RATE LIMITING KORUMASI (DDoS / Brute Force Önleme)
+  // 1. RATE LIMITING KORUMASI
   const forwardedFor = request.headers.get("x-forwarded-for");
   const clientIp = forwardedFor ? forwardedFor.split(",")[0].trim() : "127.0.0.1";
   const rateLimit = checkRateLimit(`payment_init_${clientIp}`, 15, 60_000);
 
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin || "https://asamble2440.com";
+
   if (!rateLimit.allowed) {
-    return new NextResponse(
-      renderErrorHtml(
-        "Çok Fazla İstek",
-        "Kısa süre içinde çok fazla ödeme başlatma denemesi yapıldı. Lütfen 1 dakika bekleyip tekrar deneyin.",
-        "/odemeler"
-      ),
-      { status: 429, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    const errorUrl = new URL(
+      "/odeme/hata?error=" + encodeURIComponent("Kısa süre içinde çok fazla deneme yapıldı. Lütfen 1 dakika bekleyin."),
+      siteUrl
     );
+    return NextResponse.redirect(errorUrl, 303);
   }
 
   // 2. KULLANICI OTURUM KONTROLÜ
@@ -40,10 +45,8 @@ async function handlePaymentInit(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return new NextResponse(
-      renderErrorHtml("Oturum Bulunamadı", "Lütfen sisteme tekrar giriş yapınız.", "/giris"),
-      { status: 401, headers: { "Content-Type": "text/html; charset=utf-8" } }
-    );
+    const loginUrl = new URL("/giris", siteUrl);
+    return NextResponse.redirect(loginUrl, 303);
   }
 
   const admin = createAdminClient();
@@ -75,31 +78,25 @@ async function handlePaymentInit(request: NextRequest) {
     .single();
 
   if (profError || !profile) {
-    return new NextResponse(
-      renderErrorHtml("Profil Bulunamadı", "Kullanıcı profil kaydı bulunamadı.", "/"),
-      { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } }
-    );
+    const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent("Profil kaydınız bulunamadı."), siteUrl);
+    return NextResponse.redirect(errorUrl, 303);
   }
 
   if (profile.status === "accepted") {
-    return new NextResponse(
-      renderErrorHtml("İşlem Tamamlanmış", "Ödemeniz daha önce onaylanmıştır. Tekrar ödeme yapamazsınız.", "/odemeler"),
-      { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } }
-    );
+    const successUrl = new URL("/odeme/basarili?info=" + encodeURIComponent("Ödemeniz zaten onaylanmış durumdadır."), siteUrl);
+    return NextResponse.redirect(successUrl, 303);
   }
 
   const pkg = profile.packages as any;
   if (!pkg) {
-    return new NextResponse(
-      renderErrorHtml("Paket Seçilmedi", "Hesabınıza tanımlı bir paket bulunamadı.", "/profil-tamamla"),
-      { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } }
-    );
+    const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent("Hesabınıza tanımlı paket bulunamadı."), siteUrl);
+    return NextResponse.redirect(errorUrl, 303);
   }
 
   const pricingType = profile.pricing_type ?? "early_bird";
   const adultPrice = Number(pkg[`${pricingType}_price`]) || 0;
 
-  // 4. FİYAT HESAPLAMA (Euro Cinsinden)
+  // 4. GÜVENLİ FİYAT HESAPLAMA (Euro Cinsinden)
   let finalAmount = profile.total_amount ? Number(profile.total_amount) : 0;
 
   if (!finalAmount || finalAmount <= 0) {
@@ -129,45 +126,63 @@ async function handlePaymentInit(request: NextRequest) {
   }
 
   if (!finalAmount || finalAmount <= 0) {
-    return new NextResponse(
-      renderErrorHtml("Tutar Belirlenemedi", "Ödenecek sepet tutarı belirlenemedi.", "/odemeler"),
-      { status: 400, headers: { "Content-Type": "text/html; charset=utf-8" } }
-    );
+    const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent("Ödenecek sepet tutarı belirlenemedi."), siteUrl);
+    return NextResponse.redirect(errorUrl, 303);
   }
 
-  // 5. İŞ BANKASI PARAMETRELERİ
-  const clientId = (process.env.ISBANK_CLIENT_ID || process.env.ISBANK_TERMINAL_ID || "").trim();
+  // 5. İŞ BANKASI KİMLİK BİLGİLERİ VE UÇ NOKTALARI
+  const clientId = (process.env.ISBANK_CLIENT_ID || "").trim();
+  const clientSecret = (process.env.ISBANK_CLIENT_SECRET || "").trim();
   const terminalId = (process.env.ISBANK_TERMINAL_ID || "").trim();
-  const storeKey = (process.env.ISBANK_STORE_KEY || "").trim();
-  const gateUrl = (process.env.ISBANK_3D_GATE_URL || "https://sanalpos.isbank.com.tr/fim/est3Dgate").trim();
-  const callbackUrl = (process.env.ISBANK_CALLBACK_URL || "https://asamble2440.com/api/payment/callback").trim();
 
-  if (!clientId || !storeKey) {
-    console.error("[payment/init] ISBANK_CLIENT_ID veya ISBANK_STORE_KEY eksik!");
-    return new NextResponse(
-      renderErrorHtml(
-        "Sanal POS Yapılandırma Hatası",
-        "İş Bankası Sanal POS parametreleri (.env) henüz tanımlanmamış. Lütfen sistem yöneticisiyle iletişime geçin.",
-        "/odemeler"
-      ),
-      { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } }
+  // JWT Token Endpoint (İş Bankası Dokümantasyonu)
+  const jwtUrl = (
+    process.env.ISBANK_JWT_URL ||
+    "https://api.test.isbank.com.tr/api/sandbox-isbank/v1/jwt/"
+  ).trim();
+
+  // Alışveriş Başlatma Endpoint
+  const isbankApiUrl = (
+    process.env.ISBANK_ISLEODE_URL ||
+    process.env.ISBANK_API_URL ||
+    "https://api.test.isbank.com.tr/api/sandbox-isbank/v1/isle-ode/checkout"
+  ).trim();
+
+  const callbackUrl = (process.env.ISBANK_CALLBACK_URL || `${siteUrl}/api/payment/callback`).trim();
+
+  if (!clientId || !clientSecret) {
+    console.error("[payment/init] ISBANK_CLIENT_ID veya ISBANK_CLIENT_SECRET eksik!");
+    const errorUrl = new URL(
+      "/odeme/hata?error=" + encodeURIComponent("İş Bankası Client ID veya Secret (.env) tanımlanmamış."),
+      siteUrl
     );
+    return NextResponse.redirect(errorUrl, 303);
   }
 
-  // Sipariş ID: "usr_{userId}_{timestamp}"
+  // 6. AŞAMA 1: JWT TOKEN ALMA (X-isbank-Client-Id & X-isbank-Client-Secret)
+  let bearerToken = (process.env.ISBANK_BEARER_TOKEN || "").trim();
+
+  if (!bearerToken) {
+    const jwtResult = await fetchIsbankJwtToken(jwtUrl, clientId, clientSecret);
+    if (jwtResult.token) {
+      bearerToken = jwtResult.token;
+      console.log("[payment/init] 1. Aşama Tamamlandı: JWT Bearer Token temin edildi.");
+    } else {
+      console.error("[payment/init] 1. Aşama Hatası: JWT token alınamadı:", jwtResult.error);
+      const errorUrl = new URL(
+        "/odeme/hata?error=" + encodeURIComponent("İş Bankası yetkilendirme (JWT) token'ı temin edilemedi: " + (jwtResult.error || "")),
+        siteUrl
+      );
+      return NextResponse.redirect(errorUrl, 303);
+    }
+  }
+
+  // Benzersiz Sipariş Kodu
   const merchantOid = `usr_${user.id}_${Date.now()}`;
-  // Amount formatı: Kesinlikle nokta içeren iki ondalık basamaklı string (örn: "810.00")
-  const formattedAmount = Number(finalAmount).toFixed(2);
-  const currencyCode = "978";
-  const rnd = Date.now().toString();
-  const storeType = "3d_pay_hosting";
+  const formattedAmount = Number(finalAmount.toFixed(2));
+  const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
 
-  // 6. NESTPAY SHA-512 HASH İMZASI OLUŞTURMA (ver2)
-  // Format: clientId + oid + amount + okUrl + failUrl + rnd + storeKey
-  const hashString = `${clientId}${merchantOid}${formattedAmount}${callbackUrl}${callbackUrl}${rnd}${storeKey}`;
-  const hash = crypto.createHash("sha512").update(hashString).digest("base64");
-
-  // 7. VERİTABANINA İŞLEM KAYDI (payment_transactions)
+  // 7. VERİTABANINA İŞLEM KAYDI (pending)
   const { error: txError } = await admin.from("payment_transactions").insert({
     user_id: user.id,
     amount: finalAmount,
@@ -177,135 +192,235 @@ async function handlePaymentInit(request: NextRequest) {
   });
 
   if (txError) {
-    console.error("[payment/init] Transaction insert warning:", txError.message);
+    console.error("[payment/init] Transaction insert uyarısı:", txError.message);
   }
 
-  const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
-
-  // 8. DOĞRUDAN OTOMATİK SUBMIT OLAN (AUTO-SUBMIT) HTML SAYFASI
-  const htmlString = `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>İş Bankası 3D Secure Güvenli Ödeme</title>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      padding: 20px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #f8fafc;
-      color: #0f172a;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-    }
-    .card {
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 32px;
-      max-width: 440px;
-      width: 100%;
-      text-align: center;
-      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05);
-    }
-    .spinner {
-      width: 44px;
-      height: 44px;
-      border: 3px solid #e2e8f0;
-      border-top-color: #0f172a;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 20px;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    h2 {
-      margin: 0 0 8px;
-      font-size: 1.125rem;
-      font-weight: 600;
-      color: #0f172a;
-    }
-    p {
-      margin: 0 0 20px;
-      font-size: 0.875rem;
-      color: #64748b;
-      line-height: 1.5;
-    }
-    .amount-badge {
-      display: inline-block;
-      background: #f1f5f9;
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-weight: 700;
-      color: #0f172a;
-      font-size: 1.125rem;
-      margin-bottom: 24px;
-    }
-    button {
-      background: #0f172a;
-      color: #ffffff;
-      border: none;
-      padding: 12px 24px;
-      border-radius: 6px;
-      font-size: 0.875rem;
-      font-weight: 500;
-      cursor: pointer;
-      width: 100%;
-    }
-    button:hover {
-      background: #1e293b;
-    }
-  </style>
-</head>
-<body onload="document.forms[0].submit();">
-  <div class="card">
-    <div class="spinner"></div>
-    <h2>İş Bankası Ortak Ödeme Sayfasına Aktarılıyorsunuz</h2>
-    <p>3D Secure güvenli ödeme için İş Bankası sayfasına yönlendiriliyorsunuz. Lütfen bekleyiniz...</p>
-    <div class="amount-badge">€ ${formattedAmount}</div>
-
-    <form method="POST" action="${escapeHtml(gateUrl)}">
-      <input type="hidden" name="clientid" value="${escapeHtml(clientId)}" />
-      <input type="hidden" name="storetype" value="3d_pay_hosting" />
-      <input type="hidden" name="hash" value="${escapeHtml(hash)}" />
-      <input type="hidden" name="hashAlgorithm" value="ver2" />
-      <input type="hidden" name="amount" value="${escapeHtml(formattedAmount)}" />
-      <input type="hidden" name="currency" value="978" />
-      <input type="hidden" name="oid" value="${escapeHtml(merchantOid)}" />
-      <input type="hidden" name="okUrl" value="${escapeHtml(callbackUrl)}" />
-      <input type="hidden" name="failUrl" value="${escapeHtml(callbackUrl)}" />
-      <input type="hidden" name="rnd" value="${escapeHtml(rnd)}" />
-      <input type="hidden" name="lang" value="tr" />
-      <input type="hidden" name="islemtipi" value="Auth" />
-      <input type="hidden" name="taksit" value="" />
-      <input type="hidden" name="BillToName" value="${escapeHtml(fullName)}" />
-      <input type="hidden" name="email" value="${escapeHtml(profile.email || "")}" />
-      <input type="hidden" name="tel" value="${escapeHtml(profile.phone || "")}" />
-      ${terminalId ? `<input type="hidden" name="terminalid" value="${escapeHtml(terminalId)}" />` : ""}
-      <noscript>
-        <button type="submit">Ödeme Sayfasına Devam Et</button>
-      </noscript>
-    </form>
-  </div>
-  <script>
-    document.forms[0].submit();
-  </script>
-</body>
-</html>`;
-
-  console.log("NESTPAY HTML FORM:", htmlString);
-
-  return new NextResponse(htmlString, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
+  // 8. İŞ'LE ÖDE REST API İSTEK GÖVDESİ (REQUEST PAYLOAD)
+  const requestPayload = {
+    merchantId: terminalId || clientId,
+    merchantOrderId: merchantOid,
+    orderId: merchantOid,
+    merchantReferenceCode: merchantOid,
+    amount: formattedAmount,
+    currency: "978", // Euro (ISO 4217)
+    currencyCode: "978",
+    callbackUrl: callbackUrl,
+    successUrl: callbackUrl,
+    failUrl: callbackUrl,
+    returnUrl: callbackUrl,
+    customer: {
+      id: user.id,
+      name: fullName,
+      email: profile.email || "",
+      phone: profile.phone || "",
     },
+    buyer: {
+      id: user.id,
+      name: profile.first_name || "",
+      surname: profile.last_name || "",
+      email: profile.email || "",
+      gsmNumber: profile.phone || "",
+    },
+    basketItems: [
+      {
+        id: pkg.id || "reservation",
+        name: pkg.name || "Rotary Asamble 2027 Rezervasyon",
+        price: formattedAmount,
+        quantity: 1,
+      },
+    ],
+  };
+
+  // 9. AŞAMA 2: BEARER TOKEN İLE ALIŞVERİŞ BAŞLATMA İSTEĞİ (Authorization: Bearer <token>)
+  const paymentHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    "X-isbank-Client-Id": clientId,
+    "X-isbank-Client-Secret": clientSecret,
+    Authorization: `Bearer ${bearerToken}`,
+  };
+
+  console.log("[payment/init] 2. Aşama: Alışveriş Başlatma API isteği gönderiliyor:", {
+    url: isbankApiUrl,
+    merchantOid,
+    amount: formattedAmount,
+    currency: "978",
   });
+
+  let bankResponseData: any = null;
+  try {
+    const bankRes = await fetch(isbankApiUrl, {
+      method: "POST",
+      headers: paymentHeaders,
+      body: JSON.stringify(requestPayload),
+    });
+
+    const textResponse = await bankRes.text();
+    try {
+      bankResponseData = JSON.parse(textResponse);
+    } catch {
+      bankResponseData = { rawResponse: textResponse };
+    }
+
+    console.log("[payment/init] İş Bankası Ödeme API Yanıtı:", {
+      status: bankRes.status,
+      data: bankResponseData,
+    });
+
+    if (!bankRes.ok && !bankResponseData?.paymentUrl && !bankResponseData?.redirectUrl) {
+      const errMsg =
+        bankResponseData?.resultMessage ||
+        bankResponseData?.message ||
+        bankResponseData?.error_description ||
+        `Banka servisi HTTP ${bankRes.status} hatası döndü.`;
+
+      console.error("[payment/init] Alışveriş başlatma başarısız oldu:", errMsg);
+
+      await admin
+        .from("payment_transactions")
+        .update({
+          status: "failed",
+          pos_response: bankResponseData,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("merchant_order_id", merchantOid);
+
+      const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent(errMsg), siteUrl);
+      return NextResponse.redirect(errorUrl, 303);
+    }
+  } catch (networkErr: any) {
+    console.error("[payment/init] İş Bankası ödeme servisi bağlantı hatası:", networkErr);
+
+    await admin
+      .from("payment_transactions")
+      .update({
+        status: "failed",
+        pos_response: { error: networkErr?.message || "Network Error" },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("merchant_order_id", merchantOid);
+
+    const errorUrl = new URL(
+      "/odeme/hata?error=" + encodeURIComponent("İş Bankası ödeme sunucusuna bağlanılamadı. Lütfen tekrar deneyin."),
+      siteUrl
+    );
+    return NextResponse.redirect(errorUrl, 303);
+  }
+
+  // 10. DOĞRUDAN ÖDEME BAĞLANTISINA (URL) YÖNLENDİRME
+  const paymentUrl =
+    bankResponseData?.paymentUrl ||
+    bankResponseData?.redirectUrl ||
+    bankResponseData?.checkoutUrl ||
+    bankResponseData?.url ||
+    (bankResponseData?.token
+      ? `https://ispaytest.isbank.com.tr/?jwt=${encodeURIComponent(bankResponseData.token)}`
+      : null) ||
+    (bankResponseData?.jwt
+      ? `https://ispaytest.isbank.com.tr/?jwt=${encodeURIComponent(bankResponseData.jwt)}`
+      : null) ||
+    bankResponseData?.data?.paymentUrl ||
+    bankResponseData?.data?.redirectUrl;
+
+  if (!paymentUrl) {
+    console.error("[payment/init] Yanıtta ödeme yönlendirme bağlantısı (paymentUrl) bulunamadı:", bankResponseData);
+
+    const errorUrl = new URL(
+      "/odeme/hata?error=" + encodeURIComponent("Ödeme sayfası yönlendirme bağlantısı alınamadı."),
+      siteUrl
+    );
+    return NextResponse.redirect(errorUrl, 303);
+  }
+
+  // İşlem detayını banka yanıtıyla güncelle
+  await admin
+    .from("payment_transactions")
+    .update({
+      pos_transaction_id: bankResponseData?.token || bankResponseData?.transactionId || bankResponseData?.jwt || null,
+      pos_response: bankResponseData,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("merchant_order_id", merchantOid);
+
+  console.log(`[payment/init] Kullanıcı İş Bankası ödeme ekranına yönlendiriliyor: ${paymentUrl}`);
+
+  // HTTP 303 See Other ile kullanıcıyı doğrudan İş Bankası ödeme sayfasına yönlendir
+  return NextResponse.redirect(paymentUrl, 303);
+}
+
+/**
+ * 1. Aşama: İş Bankası JWT Token Üretici Fonksiyonu
+ * Dokümandaki Code Samples'a göre X-isbank-Client-Id ve X-isbank-Client-Secret başlıklarını kullanır.
+ */
+async function fetchIsbankJwtToken(
+  jwtUrl: string,
+  clientId: string,
+  clientSecret: string
+): Promise<{ token: string | null; error?: string }> {
+  const headers: Record<string, string> = {
+    "X-isbank-Client-Id": clientId,
+    "X-isbank-Client-Secret": clientSecret,
+    Accept: "application/json",
+  };
+
+  console.log("[fetchIsbankJwtToken] JWT Token isteği gönderiliyor:", {
+    url: jwtUrl,
+    clientIdPrefix: clientId.slice(0, 6) + "...",
+  });
+
+  try {
+    // 1. Dokümandaki Code Samples standardı: GET isteği
+    let res = await fetch(jwtUrl, {
+      method: "GET",
+      headers,
+    });
+
+    // 405 dönerse POST alternatifini dene
+    if (res.status === 405) {
+      res = await fetch(jwtUrl, {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+    }
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      return {
+        token: null,
+        error: `HTTP ${res.status}: ${text}`,
+      };
+    }
+
+    try {
+      const data = JSON.parse(text);
+      const token =
+        data.token ||
+        data.access_token ||
+        data.jwt ||
+        data.data?.token ||
+        data.data?.jwt ||
+        data.accessToken ||
+        (typeof data === "string" ? data : null);
+
+      if (token) {
+        return { token: String(token).trim() };
+      }
+    } catch {
+      // Dönen yanıt doğrudan düz JWT metni ise (örn: eyJ...)
+      if (text.startsWith("ey") || text.length > 20) {
+        return { token: text.replace(/^"|"$/g, "").trim() };
+      }
+    }
+
+    return { token: null, error: `Token ayrıştırılamadı. Yanıt: ${text}` };
+  } catch (err: any) {
+    return { token: null, error: err?.message || "Bağlantı hatası" };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -314,39 +429,4 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   return handlePaymentInit(request);
-}
-
-function escapeHtml(str: string | null | undefined): string {
-  if (str == null) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function renderErrorHtml(title: string, message: string, backUrl: string): string {
-  return `<!DOCTYPE html>
-<html lang="tr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(title)}</title>
-  <style>
-    body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f8fafc; margin: 0; }
-    .card { background: white; padding: 32px; border-radius: 8px; max-width: 400px; text-align: center; border: 1px solid #fee2e2; }
-    h2 { color: #dc2626; margin: 0 0 10px; font-size: 1.25rem; }
-    p { color: #475569; margin: 0 0 20px; font-size: 0.9rem; }
-    a { display: inline-block; background: #0f172a; color: white; text-decoration: none; padding: 10px 20px; border-radius: 4px; font-size: 0.875rem; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h2>${escapeHtml(title)}</h2>
-    <p>${escapeHtml(message)}</p>
-    <a href="${escapeHtml(backUrl)}">Geri Dön</a>
-  </div>
-</body>
-</html>`;
 }

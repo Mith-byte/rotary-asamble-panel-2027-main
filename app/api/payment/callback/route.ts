@@ -1,149 +1,113 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
-import crypto from "crypto";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Zamanlama Analizi (Timing Attack) Korumalı Güvenli String Karşılaştırma
- */
-function safeTimingCompare(a: string, b: string): boolean {
-  try {
-    const bufA = Buffer.from(a, "utf-8");
-    const bufB = Buffer.from(b, "utf-8");
-    if (bufA.length !== bufB.length) return false;
-    return crypto.timingSafeEqual(bufA, bufB);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * İş Bankası Sanal POS (Nestpay / Est3D) Callback (Geri Dönüş) API Rotası
+ * İş Bankası "İş'le Öde" Callback & Webhook API Rotası
  *
- * Güvenlik Standartları:
- * 1. Rate Limiting: IP başına dakikada maksimum 30 istek (Brute-force / Callback flooding önleme)
- * 2. Fail-Closed İmza Doğrulaması: ISBANK_STORE_KEY yoksa kesinlikle işlem onaylanmaz.
- * 3. Timing-Safe Hash Doğrulama: Yan-kanal (side-channel) saldırılarına karşı timingSafeEqual.
- * 4. Tutar (Amount) Doğrulaması: Bankanın bildirdiği tutar ile siparişteki tutar tam eşleşmeli.
- * 5. Replay Attack Koruması: Zaten tamamlanmış sipariş mükerrer işleme alınmaz (Idempotency).
- * 6. mdStatus ve Banka Yanıt Kodu Kontrolü.
+ * Mimari:
+ * 1. Eski Nestpay HTML form ve hashparams doğrulamasını kaldırır.
+ * 2. Bankanın 'İş'le Öde' servisinden gelen JSON Webhook veya kullanıcı yönlendirme (Browser Return)
+ *    isteklerini karşılar.
+ * 3. İşlem başarılıysa ('SUCCESS', 'COMPLETED', 'PAID', '00' vb.):
+ *    - payment_transactions tablosunu 'completed' olarak günceller.
+ *    - profiles.status değerini 'accepted' yapar.
+ *    - Webhook ise JSON { status: "OK" } yanıtı döner; tarayıcı yönlendirmesi ise /odeme/basarili sayfasına aktarır.
+ * 4. Başarısız ise:
+ *    - payment_transactions tablosunu 'failed' olarak günceller.
+ *    - Webhook ise JSON hata yanıtı döner; tarayıcı ise /odeme/hata sayfasına aktarır.
  */
-export async function POST(request: NextRequest) {
+async function handleCallback(request: NextRequest) {
   // 1. RATE LIMITING KORUMASI
   const forwardedFor = request.headers.get("x-forwarded-for");
   const clientIp = forwardedFor ? forwardedFor.split(",")[0].trim() : "127.0.0.1";
-  const rateLimit = checkRateLimit(`payment_callback_${clientIp}`, 30, 60_000);
+  const rateLimit = checkRateLimit(`payment_callback_${clientIp}`, 40, 60_000);
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin || "https://asamble2440.com";
 
   if (!rateLimit.allowed) {
     console.warn(`[payment/callback] Rate limit aşıldı! IP: ${clientIp}`);
-    return redirectTo("/odeme/hata?error=Cok_fazla_istek_Lutfen_bekleyin", request);
+    return isWebhookRequest(request)
+      ? NextResponse.json({ error: "Too many requests" }, { status: 429 })
+      : redirectTo("/odeme/hata?error=Cok_fazla_istek_Lutfen_bekleyin", siteUrl);
   }
 
-  let formData: FormData;
+  // 2. GELEN VERİYİ AYIKLA (JSON, Form-Data veya URL Query Params)
+  let rawData: Record<string, any> = {};
 
-  try {
-    const contentType = request.headers.get("content-type") || "";
-    if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
-      formData = await request.formData();
-    } else {
-      const text = await request.text();
-      const params = new URLSearchParams(text);
-      formData = new FormData();
-      for (const [key, value] of params.entries()) {
-        formData.set(key, value);
-      }
+  const contentType = request.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      rawData = await request.json();
+    } catch (e) {
+      console.warn("[payment/callback] JSON parse hatası:", e);
     }
-  } catch (err) {
-    console.error("[payment/callback] FormData parse hatası:", err);
-    return redirectTo("/odeme/hata?error=Gecersiz_istek_formati", request);
+  } else if (
+    contentType.includes("application/x-www-form-urlencoded") ||
+    contentType.includes("multipart/form-data")
+  ) {
+    try {
+      const formData = await request.formData();
+      formData.forEach((value, key) => {
+        rawData[key] = value.toString();
+      });
+    } catch (e) {
+      console.warn("[payment/callback] FormData parse hatası:", e);
+    }
   }
 
-  // Gelen tüm parametreleri obje olarak topla
-  const rawParams: Record<string, string> = {};
-  formData.forEach((value, key) => {
-    rawParams[key] = value.toString();
+  // URL query parametrelerini de harmanla (GET veya redirect dönüşleri için)
+  request.nextUrl.searchParams.forEach((value, key) => {
+    if (rawData[key] === undefined) {
+      rawData[key] = value;
+    }
   });
 
-  console.log("[payment/callback] Bankadan gelen parametreler:", {
-    oid: rawParams.oid || rawParams.ReturnOid,
-    mdStatus: rawParams.mdStatus,
-    Response: rawParams.Response,
-    ProcReturnCode: rawParams.ProcReturnCode,
-    ErrMsg: rawParams.ErrMsg,
-  });
+  console.log("[payment/callback] İş'le Öde gelen bildirim verisi:", rawData);
 
-  // Temel alanları ayıkla
-  const oid = (rawParams.oid || rawParams.ReturnOid || "").trim();
-  const mdStatus = (rawParams.mdStatus || "").trim();
-  const responseCode = (rawParams.Response || "").trim();
-  const procReturnCode = (rawParams.ProcReturnCode || "").trim();
-  const transId = (rawParams.TransId || "").trim();
-  const errMsg = (rawParams.ErrMsg || "").trim();
-  const bankHash = (rawParams.HASH || rawParams.hash || "").trim();
-  const hashparams = (rawParams.HASHPARAMS || rawParams.hashparams || "").trim();
-  const hashparamsval = (rawParams.HASHPARAMSVAL || rawParams.hashparamsval || "").trim();
+  // 3. TEMEL ALANLARI HARİTALAMA (Mapping)
+  const oid = (
+    rawData.orderId ||
+    rawData.merchantOrderId ||
+    rawData.merchantReferenceCode ||
+    rawData.oid ||
+    rawData.ReturnOid ||
+    ""
+  ).toString().trim();
 
-  const storeKey = (process.env.ISBANK_STORE_KEY || "").trim();
+  const statusRaw = (
+    rawData.status ||
+    rawData.paymentStatus ||
+    rawData.resultCode ||
+    rawData.Response ||
+    rawData.transactionStatus ||
+    ""
+  ).toString().trim().toUpperCase();
 
-  // 2. NESTPAY İMZA (HASH) DOĞRULAMASI (FAIL-CLOSED)
-  let isHashValid = false;
+  const transId = (
+    rawData.transactionId ||
+    rawData.paymentId ||
+    rawData.transId ||
+    rawData.TransId ||
+    rawData.token ||
+    ""
+  ).toString().trim();
 
-  if (!storeKey) {
-    // GÜVENLİK: Asla fail-open olamaz! Store key yoksa işlem reddedilmeli.
-    console.error("[payment/callback] KRİTİK GÜVENLİK HATASI: ISBANK_STORE_KEY tanımlı değil!");
-    return redirectTo(`/odeme/hata?oid=${encodeURIComponent(oid)}&error=Sistem_yapilandirma_hatasi`, request);
-  }
-
-  if (!bankHash) {
-    console.error("[payment/callback] Bankadan HASH parametresi gelmedi!");
-    isHashValid = false;
-  } else {
-    let digest = "";
-
-    if (hashparams) {
-      const paramList = hashparams.split(":");
-      for (const param of paramList) {
-        if (!param) continue;
-        const val = rawParams[param] ?? "";
-        digest += val;
-      }
-      digest += storeKey;
-    } else if (hashparamsval) {
-      digest = hashparamsval + storeKey;
-    }
-
-    if (digest) {
-      const sha512Hash = crypto.createHash("sha512").update(digest, "utf-8").digest("base64");
-      const sha1Hash = crypto.createHash("sha1").update(digest, "utf-8").digest("base64");
-
-      // Timing Attack Korumalı karşılaştırma
-      if (safeTimingCompare(bankHash, sha512Hash) || safeTimingCompare(bankHash, sha1Hash)) {
-        isHashValid = true;
-      } else {
-        console.error("[payment/callback] Güvenlik Uyarısı: İmza uyuşmazlığı tespit edildi!", {
-          oid,
-          bankHash,
-          calculatedSha512: sha512Hash,
-        });
-      }
-    }
-  }
-
-  // 3. MDSTATUS VE BANKA ONAY KONTROLÜ
-  // 1: Tam 3D Onayı
-  // 2: Kart sahibi sisteme kayıtlı değil (Banka 3D destekliyor)
-  // 3: Kart bankası 3D desteklemiyor
-  // 4: 3D denemesi yapıldı ancak kart sahibi dahil değil
-  const validMdStatuses = ["1", "2", "3", "4"];
-  const isMdStatusSuccess = validMdStatuses.includes(mdStatus);
-  const isResponseApproved =
-    responseCode.toLowerCase() === "approved" || procReturnCode === "00" || (!responseCode && procReturnCode !== "99");
+  const errMsg = (
+    rawData.errorMessage ||
+    rawData.resultMessage ||
+    rawData.ErrMsg ||
+    rawData.error ||
+    rawData.message ||
+    ""
+  ).toString().trim();
 
   const admin = createAdminClient();
 
-  // 4. VERİTABANI İŞLEM KAYDI KONTROLÜ & TUTAR DOĞRULAMASI
+  // 4. VERİTABANI İŞLEM KAYDI KONTROLÜ
   let existingTx: { id: string; user_id: string; amount: number; status: string } | null = null;
 
   if (oid) {
@@ -158,32 +122,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // REPLAY ATTACK KORUMASI: Eğer işlem daha önce başarıyla tamamlanmışsa mükerrer işlem yapma
+  // REPLAY ATTACK KORUMASI: Daha önce tamamlandıysa mükerrer işlem yapma
   if (existingTx && (existingTx.status === "completed" || (existingTx.status as string) === "paid")) {
-    console.log(`[payment/callback] Mükerrer istek engellendi (Idempotent): OID ${oid} zaten tamamlanmış.`);
-    return redirectTo(`/odeme/basarili?oid=${encodeURIComponent(oid)}&transId=${encodeURIComponent(transId)}`, request);
+    console.log(`[payment/callback] Mükerrer bildirim (Idempotent): OID ${oid} zaten tamamlanmış.`);
+    return isWebhookRequest(request)
+      ? NextResponse.json({ status: "OK", alreadyProcessed: true, orderId: oid })
+      : redirectTo(`/odeme/basarili?oid=${encodeURIComponent(oid)}&transId=${encodeURIComponent(transId)}`, siteUrl);
   }
 
-  // TUTAR MANİPÜLASYONU KONTROLÜ (Price Tampering Check):
-  // Bankadan dönen tutar ile veritabanında saklanan beklenen tutar tam eşleşmeli
-  const bankAmountRaw = rawParams.amount || rawParams.Amount || "";
-  let isAmountValid = true;
+  // 5. BAŞARI KONTROLÜ
+  // 'İş'le Öde' başarı kodları: SUCCESS, COMPLETED, PAID, APPROVED, 00, 0, OK veya isSuccess === true
+  const successCodes = ["SUCCESS", "COMPLETED", "PAID", "APPROVED", "00", "0", "OK"];
+  const isPaymentSuccess = successCodes.includes(statusRaw) || rawData.isSuccess === true;
 
-  if (existingTx && bankAmountRaw) {
-    const bankAmount = Number(bankAmountRaw);
-    const expectedAmount = Number(existingTx.amount);
-    if (!isNaN(bankAmount) && Math.abs(bankAmount - expectedAmount) > 0.01) {
-      console.error(
-        `[payment/callback] KRİTİK GÜVENLİK ALARMI: Tutar manipülasyonu tespit edildi! Banka: ${bankAmount}, DB: ${expectedAmount}`
-      );
-      isAmountValid = false;
-    }
-  }
-
-  // İşlemin başarılı kabul edilmesi için tüm güvenlik koşulları sağlanmalı
-  const isPaymentSuccess = isHashValid && isMdStatusSuccess && isResponseApproved && isAmountValid;
-
-  // Sipariş ID'sinden (usr_{userId}_{timestamp}) kullanıcı id'sini çıkar veya DB'den bul
+  // Kullanıcı kimliği
   let userId: string | null = existingTx?.user_id || null;
   if (!userId) {
     const match = oid.match(/^usr_([a-f0-9-]{36})_/);
@@ -192,18 +144,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 5. İŞLEM BAŞARILI İSE (SUCCESS / PAID)
+  // 6. İŞLEM BAŞARILI İSE (SUCCESS / COMPLETED)
   if (isPaymentSuccess) {
     console.log(`[payment/callback] Ödeme başarıyla onaylandı: OID=${oid}, TransId=${transId}`);
 
-    // payment_transactions tablosunda kaydı 'completed' olarak güncelle
     if (oid) {
       const { error: txUpdateError } = await admin
         .from("payment_transactions")
         .update({
           status: "completed",
           pos_transaction_id: transId || null,
-          pos_response: rawParams,
+          pos_response: rawData,
           updated_at: new Date().toISOString(),
         })
         .eq("merchant_order_id", oid);
@@ -213,7 +164,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Profil durumunu 'accepted' (Onaylandı / Ödendi) olarak güncelle
     if (userId) {
       const { error: profUpdateError } = await admin
         .from("profiles")
@@ -228,65 +178,83 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Kullanıcıyı Başarılı Sayfasına Yönlendir
-    const successUrl = `/odeme/basarili?oid=${encodeURIComponent(oid)}&transId=${encodeURIComponent(transId)}`;
-    return redirectTo(successUrl, request);
+    // Server-to-server Webhook ise JSON yanıtı dön
+    if (isWebhookRequest(request)) {
+      return NextResponse.json({
+        status: "OK",
+        orderId: oid,
+        message: "Payment confirmed successfully",
+      });
+    }
+
+    // Tarayıcı yönlendirmesi ise Başarılı Sayfasına yönlendir
+    return redirectTo(
+      `/odeme/basarili?oid=${encodeURIComponent(oid)}&transId=${encodeURIComponent(transId)}`,
+      siteUrl
+    );
   }
 
-  // 6. İŞLEM BAŞARISIZ İSE (FAILED)
-  let securityReason = errMsg;
-  if (!isHashValid) {
-    securityReason = "Banka imza doğrulaması başarısız oldu (Güvenlik Uyarısı).";
-  } else if (!isAmountValid) {
-    securityReason = "Ödeme tutarı sistem kayıtlarıyla uyuşmuyor.";
-  } else if (!isMdStatusSuccess) {
-    securityReason = `3D Secure doğrulaması tamamlanamadı (mdStatus: ${mdStatus || "bilinmiyor"}).`;
-  }
-
-  console.warn(`[payment/callback] Ödeme reddedildi veya başarısız: OID=${oid}, Neden=${securityReason}`);
+  // 7. İŞLEM BAŞARISIZ İSE (FAILED)
+  const failureReason = errMsg || `Ödeme tamamlanamadı (Banka Durumu: ${statusRaw || "Bilinmiyor"}).`;
+  console.warn(`[payment/callback] Ödeme başarısız: OID=${oid}, Neden=${failureReason}`);
 
   if (oid) {
-    const { error: txFailError } = await admin
+    await admin
       .from("payment_transactions")
       .update({
         status: "failed",
         pos_transaction_id: transId || null,
-        pos_response: rawParams,
+        pos_response: rawData,
         updated_at: new Date().toISOString(),
       })
       .eq("merchant_order_id", oid);
-
-    if (txFailError) {
-      console.error("[payment/callback] payment_transactions fail güncelleme hatası:", txFailError.message);
-    }
   }
 
-  // Kullanıcıyı Hata Sayfasına Yönlendir
-  const failUrl = `/odeme/hata?oid=${encodeURIComponent(oid)}&error=${encodeURIComponent(securityReason || "Banka işlemi onaylamadı.")}`;
-  return redirectTo(failUrl, request);
+  // Webhook ise JSON dön
+  if (isWebhookRequest(request)) {
+    return NextResponse.json(
+      {
+        status: "FAILED",
+        orderId: oid,
+        error: failureReason,
+      },
+      { status: 400 }
+    );
+  }
+
+  // Tarayıcı yönlendirmesi ise Hata Sayfasına yönlendir
+  return redirectTo(
+    `/odeme/hata?oid=${encodeURIComponent(oid)}&error=${encodeURIComponent(failureReason)}`,
+    siteUrl
+  );
+}
+
+export async function POST(request: NextRequest) {
+  return handleCallback(request);
+}
+
+export async function GET(request: NextRequest) {
+  return handleCallback(request);
 }
 
 /**
- * GET: Bankanın bazı kontrolleri veya test istekleri için
+ * İsteğin server-to-server Webhook mu yoksa kullanıcının tarayıcı yönlendirmesi mi olduğunu belirler.
  */
-export async function GET(request: NextRequest) {
-  return new Response("İş Bankası Sanal POS Callback Endpoint Aktiftir.", {
-    status: 200,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+function isWebhookRequest(request: NextRequest): boolean {
+  const accept = request.headers.get("accept") || "";
+  const contentType = request.headers.get("content-type") || "";
+
+  // Tarayıcılar genelde Accept: text/html,... gönderir. Webhook servisleri ise application/json gönderir.
+  if (contentType.includes("application/json") && !accept.includes("text/html")) {
+    return true;
+  }
+  return false;
 }
 
 /**
  * Güvenli ve cross-origin uyumlu HTTP 303 (See Other) Yönlendirmesi
  */
-function redirectTo(path: string, request: NextRequest) {
-  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") || "https";
-  const siteUrl = host
-    ? `${proto}://${host}`
-    : process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin || "https://asamble2440.com";
+function redirectTo(path: string, siteUrl: string) {
   const url = new URL(path, siteUrl);
-
-  // 303 See Other: POST isteğini tarayıcı tarafında otomatik GET isteğine çevirir
   return NextResponse.redirect(url, 303);
 }
