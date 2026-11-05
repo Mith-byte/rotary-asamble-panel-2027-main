@@ -70,6 +70,8 @@ async function handleCallback(request: NextRequest) {
 
   // 3. TEMEL ALANLARI HARİTALAMA (Mapping)
   const oid = (
+    rawData.order_number ||
+    rawData.orderNumber ||
     rawData.orderId ||
     rawData.merchantOrderId ||
     rawData.merchantReferenceCode ||

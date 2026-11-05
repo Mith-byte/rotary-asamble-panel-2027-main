@@ -8,18 +8,19 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /**
- * İş Bankası "İş'le Öde - Alışveriş Başlatma" 2 Aşamalı JWT Yetkilendirme & Ödeme Rotası
+ * İş Bankası "İşPOS API" (virtual-pos/v1/3dPayment) 2 Aşamalı Yetkilendirme & Ödeme Rotası
  *
  * 1. Aşama (JWT Token):
  *    https://api.test.isbank.com.tr/api/sandbox-isbank/v1/jwt/ adresine
- *    X-isbank-Client-Id ve X-isbank-Client-Secret başlıklarıyla istek atılarak Bearer Token alınır.
+ *    X-isbank-Client-Id ve X-isbank-Client-Secret başlıklarıyla GET isteği atılarak Bearer Token alınır.
  *
- * 2. Aşama (Alışveriş Başlatma):
+ * 2. Aşama (İşPOS 3D Payment):
  *    Alınan Bearer token "Authorization: Bearer <token>" başlığına eklenerek
- *    İş'le Öde Alışveriş Başlatma API'sine sepet tutarı (Euro 978) ile ödeme başlatma isteği gönderilir.
+ *    https://api.test.isbank.com.tr/api/sandbox-isbank/virtual-pos/v1/3dPayment adresine
+ *    order_number, amount (kuruş), currency (978), merchant_number, return_url verileriyle POST isteği gönderilir.
  *
  * 3. Aşama (Yönlendirme):
- *    Dönen ödeme linkine (paymentUrl / redirectUrl) kullanıcı HTTP 303 ile doğrudan yönlendirilir.
+ *    Dönen 3D ödeme linki (paymentUrl / threeDUrl / htmlContent) ile kullanıcı güvenli banka ekranına aktarılır.
  */
 async function handlePaymentInit(request: NextRequest) {
   // JSON isteği kontrolü (Fetch istemcisi veya Accept: application/json)
@@ -171,17 +172,17 @@ async function handlePaymentInit(request: NextRequest) {
   const clientSecret = (process.env.ISBANK_CLIENT_SECRET || "").trim();
   const terminalId = (process.env.ISBANK_TERMINAL_ID || "").trim();
 
-  // JWT Token Endpoint (İş Bankası Dokümantasyonu)
+  // 1. Aşama: JWT Token Endpoint (İş Bankası Dokümantasyonu)
   const jwtUrl = (
     process.env.ISBANK_JWT_URL ||
     "https://api.test.isbank.com.tr/api/sandbox-isbank/v1/jwt/"
   ).trim();
 
-  // Alışveriş Başlatma Endpoint
-  const isbankApiUrl = (
-    process.env.ISBANK_ISLEODE_URL ||
+  // 2. Aşama: İşPOS Virtual POS 3D Payment Endpoint
+  const isposUrl = (
+    process.env.ISBANK_ISPOS_URL ||
     process.env.ISBANK_API_URL ||
-    "https://api.test.isbank.com.tr/api/sandbox-isbank/v1/isle-ode/checkout"
+    "https://api.test.isbank.com.tr/api/sandbox-isbank/virtual-pos/v1/3dPayment"
   ).trim();
 
   const callbackUrl = (process.env.ISBANK_CALLBACK_URL || `${siteUrl}/api/payment/callback`).trim();
@@ -226,19 +227,25 @@ async function handlePaymentInit(request: NextRequest) {
     console.error("[payment/init] Transaction insert uyarısı:", txError.message);
   }
 
-  // 8. İŞ'LE ÖDE REST API İSTEK GÖVDESİ (REQUEST PAYLOAD)
+  // 8. İŞPOS 3D PAYMENT REST API İSTEK GÖVDESİ (REQUEST PAYLOAD)
+  // Tutar Euro cent / kuruş formatında (kuruşsuz tam tutar kuruşlandırılarak gönderilir: örn: 500.00 € -> 50000)
+  const amountInCents = Math.round(finalAmount * 100);
+
   const requestPayload = {
-    merchantId: terminalId || clientId,
-    merchantOrderId: merchantOid,
-    orderId: merchantOid,
-    merchantReferenceCode: merchantOid,
-    amount: formattedAmount,
+    order_number: merchantOid,
+    merchant_number: terminalId || clientId,
+    amount: amountInCents,
     currency: "978", // Euro (ISO 4217)
+    return_url: callbackUrl,
+
+    // Alternatif/genişletilmiş API alan uyumlulukları:
+    orderId: merchantOid,
+    merchantId: terminalId || clientId,
+    merchantNumber: terminalId || clientId,
     currencyCode: "978",
     callbackUrl: callbackUrl,
     successUrl: callbackUrl,
     failUrl: callbackUrl,
-    returnUrl: callbackUrl,
     customer: {
       id: user.id,
       name: fullName,
@@ -262,7 +269,7 @@ async function handlePaymentInit(request: NextRequest) {
     ],
   };
 
-  // 9. AŞAMA 2: BEARER TOKEN İLE ALIŞVERİŞ BAŞLATMA İSTEĞİ (Authorization: Bearer <token>)
+  // 9. AŞAMA 2: BEARER TOKEN İLE İŞPOS 3D PAYMENT İSTEĞİ (Authorization: Bearer <token>)
   const paymentHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -271,16 +278,17 @@ async function handlePaymentInit(request: NextRequest) {
     Authorization: `Bearer ${bearerToken}`,
   };
 
-  console.log("[payment/init] 2. Aşama: Alışveriş Başlatma API isteği gönderiliyor:", {
-    url: isbankApiUrl,
-    merchantOid,
-    amount: formattedAmount,
+  console.log("[payment/init] 2. Aşama: İşPOS 3D Payment API isteği gönderiliyor:", {
+    url: isposUrl,
+    order_number: merchantOid,
+    merchant_number: terminalId || clientId,
+    amount: amountInCents,
     currency: "978",
   });
 
   let bankResponseData: any = null;
   try {
-    const bankRes = await fetch(isbankApiUrl, {
+    const bankRes = await fetch(isposUrl, {
       method: "POST",
       headers: paymentHeaders,
       body: JSON.stringify(requestPayload),
@@ -293,19 +301,26 @@ async function handlePaymentInit(request: NextRequest) {
       bankResponseData = { rawResponse: textResponse };
     }
 
-    console.log("[payment/init] İş Bankası Ödeme API Yanıtı:", {
+    console.log("[payment/init] İşPOS API Yanıtı:", {
       status: bankRes.status,
       data: bankResponseData,
     });
 
-    if (!bankRes.ok && !bankResponseData?.paymentUrl && !bankResponseData?.redirectUrl) {
+    if (
+      !bankRes.ok &&
+      !bankResponseData?.paymentUrl &&
+      !bankResponseData?.redirectUrl &&
+      !bankResponseData?.threeDUrl &&
+      !bankResponseData?.htmlContent &&
+      !bankResponseData?.html
+    ) {
       const errMsg =
         bankResponseData?.resultMessage ||
         bankResponseData?.message ||
         bankResponseData?.error_description ||
         `Banka servisi HTTP ${bankRes.status} hatası döndü.`;
 
-      console.error("[payment/init] Alışveriş başlatma başarısız oldu:", errMsg);
+      console.error("[payment/init] İşPOS ödeme isteği başarısız oldu:", errMsg);
 
       await admin
         .from("payment_transactions")
@@ -336,12 +351,16 @@ async function handlePaymentInit(request: NextRequest) {
     );
   }
 
-  // 10. DOĞRUDAN ÖDEME BAĞLANTISINA (URL) YÖNLENDİRME
+  // 10. DOĞRUDAN ÖDEME BAĞLANTISINA (URL) VEYA 3D HTML İÇERİĞİNE YÖNLENDİRME
   const paymentUrl =
     bankResponseData?.paymentUrl ||
     bankResponseData?.redirectUrl ||
+    bankResponseData?.threeDUrl ||
+    bankResponseData?.threeDSecureUrl ||
     bankResponseData?.checkoutUrl ||
+    bankResponseData?.gatewayUrl ||
     bankResponseData?.url ||
+    bankResponseData?.actionUrl ||
     (bankResponseData?.token
       ? `https://ispaytest.isbank.com.tr/?jwt=${encodeURIComponent(bankResponseData.token)}`
       : null) ||
@@ -349,10 +368,19 @@ async function handlePaymentInit(request: NextRequest) {
       ? `https://ispaytest.isbank.com.tr/?jwt=${encodeURIComponent(bankResponseData.jwt)}`
       : null) ||
     bankResponseData?.data?.paymentUrl ||
-    bankResponseData?.data?.redirectUrl;
+    bankResponseData?.data?.redirectUrl ||
+    bankResponseData?.data?.threeDUrl ||
+    bankResponseData?.data?.url;
 
-  if (!paymentUrl) {
-    console.error("[payment/init] Yanıtta ödeme yönlendirme bağlantısı (paymentUrl) bulunamadı:", bankResponseData);
+  const htmlContent =
+    bankResponseData?.htmlContent ||
+    bankResponseData?.html ||
+    bankResponseData?.threeDHtml ||
+    bankResponseData?.data?.htmlContent ||
+    bankResponseData?.data?.html;
+
+  if (!paymentUrl && !htmlContent) {
+    console.error("[payment/init] Yanıtta ödeme yönlendirme bağlantısı veya HTML içeriği bulunamadı:", bankResponseData);
     return respondError("Ödeme sayfası yönlendirme bağlantısı alınamadı.", 502);
   }
 
@@ -360,25 +388,37 @@ async function handlePaymentInit(request: NextRequest) {
   await admin
     .from("payment_transactions")
     .update({
-      pos_transaction_id: bankResponseData?.token || bankResponseData?.transactionId || bankResponseData?.jwt || null,
+      pos_transaction_id:
+        bankResponseData?.transactionId ||
+        bankResponseData?.token ||
+        bankResponseData?.jwt ||
+        bankResponseData?.orderId ||
+        null,
       pos_response: bankResponseData,
       updated_at: new Date().toISOString(),
     })
     .eq("merchant_order_id", merchantOid);
 
-  console.log(`[payment/init] Kullanıcı İş Bankası ödeme ekranına yönlendiriliyor: ${paymentUrl}`);
+  console.log(`[payment/init] Kullanıcı İşPOS 3D ödeme ekranına yönlendiriliyor: ${paymentUrl || "3D HTML Formu"}`);
 
   if (isJsonRequest) {
     return NextResponse.json({
       success: true,
-      paymentUrl,
+      paymentUrl: paymentUrl || undefined,
+      htmlContent: htmlContent || undefined,
       merchantOrderId: merchantOid,
       amount: formattedAmount,
     });
   }
 
-  // HTTP 303 See Other ile kullanıcıyı doğrudan İş Bankası ödeme sayfasına yönlendir (GET veya doğrudan tarayıcı çağrısı)
-  return NextResponse.redirect(paymentUrl, 303);
+  if (paymentUrl) {
+    return NextResponse.redirect(paymentUrl, 303);
+  }
+
+  return new NextResponse(htmlContent, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
 /**

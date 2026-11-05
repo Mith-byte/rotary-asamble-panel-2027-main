@@ -28,14 +28,25 @@ export function PayButton({ amount }: PayButtonProps) {
 
       const data = await res.json();
 
-      if (!res.ok || !data.success || !data.paymentUrl) {
+      if (!res.ok || !data.success || (!data.paymentUrl && !data.htmlContent)) {
         setError(data.error || "Ödeme başlatılamadı. Lütfen tekrar deneyin.");
         setLoading(false);
         return;
       }
 
-      // İş Bankası'nın güncel 'İş'le Öde' ödeme sayfasına yönlendir
-      window.location.href = data.paymentUrl;
+      // Bankanın 3D Secure ödeme sayfasına yönlendir
+      if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+        return;
+      }
+
+      // Banka 3D HTML form içeriği döndüyse DOM'a bas
+      if (data.htmlContent) {
+        document.open();
+        document.write(data.htmlContent);
+        document.close();
+        return;
+      }
     } catch (err: any) {
       console.error("[PayButton] Ödeme başlatma hatası:", err);
       setError("Bağlantı kurulamadı. Lütfen internet bağlantınızı kontrol edip tekrar deneyin.");
@@ -65,7 +76,7 @@ export function PayButton({ amount }: PayButtonProps) {
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-        <span>İş Bankası 'İş'le Öde' 256-bit SSL korumalı güvenli ödeme</span>
+        <span>İş Bankası İşPOS 3D Secure 256-bit SSL korumalı güvenli ödeme</span>
       </div>
     </div>
   );
