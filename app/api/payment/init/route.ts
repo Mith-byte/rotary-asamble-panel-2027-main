@@ -5,6 +5,7 @@ import { calculateReservationPrice } from "@/lib/pricing";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 /**
  * İş Bankası "İş'le Öde - Alışveriş Başlatma" 2 Aşamalı JWT Yetkilendirme & Ödeme Rotası
@@ -21,20 +22,43 @@ export const dynamic = "force-dynamic";
  *    Dönen ödeme linkine (paymentUrl / redirectUrl) kullanıcı HTTP 303 ile doğrudan yönlendirilir.
  */
 async function handlePaymentInit(request: NextRequest) {
+  // JSON isteği kontrolü (Fetch istemcisi veya Accept: application/json)
+  const isJsonRequest =
+    request.headers.get("accept")?.includes("application/json") ||
+    request.headers.get("content-type")?.includes("application/json") ||
+    request.method === "POST";
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin || "https://asamble2440.com";
+
+  function respondError(
+    errorMessage: string,
+    statusCode: number = 400,
+    redirectUrlPath: string = "/odeme/hata"
+  ) {
+    if (isJsonRequest) {
+      return NextResponse.json(
+        { success: false, error: errorMessage },
+        { status: statusCode }
+      );
+    }
+    const targetUrl = new URL(
+      `${redirectUrlPath}?error=${encodeURIComponent(errorMessage)}`,
+      siteUrl
+    );
+    return NextResponse.redirect(targetUrl, 303);
+  }
+
   // 1. RATE LIMITING KORUMASI
   const forwardedFor = request.headers.get("x-forwarded-for");
   const clientIp = forwardedFor ? forwardedFor.split(",")[0].trim() : "127.0.0.1";
   const rateLimit = checkRateLimit(`payment_init_${clientIp}`, 15, 60_000);
 
-  const siteUrl =
-    process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin || "https://asamble2440.com";
-
   if (!rateLimit.allowed) {
-    const errorUrl = new URL(
-      "/odeme/hata?error=" + encodeURIComponent("Kısa süre içinde çok fazla deneme yapıldı. Lütfen 1 dakika bekleyin."),
-      siteUrl
+    return respondError(
+      "Kısa süre içinde çok fazla deneme yapıldı. Lütfen 1 dakika bekleyin.",
+      429
     );
-    return NextResponse.redirect(errorUrl, 303);
   }
 
   // 2. KULLANICI OTURUM KONTROLÜ
@@ -45,6 +69,12 @@ async function handlePaymentInit(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
+    if (isJsonRequest) {
+      return NextResponse.json(
+        { success: false, error: "Oturum açmanız gerekiyor.", redirectUrl: "/giris" },
+        { status: 401 }
+      );
+    }
     const loginUrl = new URL("/giris", siteUrl);
     return NextResponse.redirect(loginUrl, 303);
   }
@@ -78,19 +108,26 @@ async function handlePaymentInit(request: NextRequest) {
     .single();
 
   if (profError || !profile) {
-    const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent("Profil kaydınız bulunamadı."), siteUrl);
-    return NextResponse.redirect(errorUrl, 303);
+    return respondError("Profil kaydınız bulunamadı.", 404);
   }
 
   if (profile.status === "accepted") {
-    const successUrl = new URL("/odeme/basarili?info=" + encodeURIComponent("Ödemeniz zaten onaylanmış durumdadır."), siteUrl);
+    if (isJsonRequest) {
+      return NextResponse.json(
+        { success: false, error: "Ödemeniz zaten onaylanmış durumdadır.", redirectUrl: "/odeme/basarili" },
+        { status: 400 }
+      );
+    }
+    const successUrl = new URL(
+      "/odeme/basarili?info=" + encodeURIComponent("Ödemeniz zaten onaylanmış durumdadır."),
+      siteUrl
+    );
     return NextResponse.redirect(successUrl, 303);
   }
 
   const pkg = profile.packages as any;
   if (!pkg) {
-    const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent("Hesabınıza tanımlı paket bulunamadı."), siteUrl);
-    return NextResponse.redirect(errorUrl, 303);
+    return respondError("Hesabınıza tanımlı paket bulunamadı.", 404);
   }
 
   const pricingType = profile.pricing_type ?? "early_bird";
@@ -126,8 +163,7 @@ async function handlePaymentInit(request: NextRequest) {
   }
 
   if (!finalAmount || finalAmount <= 0) {
-    const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent("Ödenecek sepet tutarı belirlenemedi."), siteUrl);
-    return NextResponse.redirect(errorUrl, 303);
+    return respondError("Ödenecek sepet tutarı belirlenemedi.", 400);
   }
 
   // 5. İŞ BANKASI KİMLİK BİLGİLERİ VE UÇ NOKTALARI
@@ -152,11 +188,7 @@ async function handlePaymentInit(request: NextRequest) {
 
   if (!clientId || !clientSecret) {
     console.error("[payment/init] ISBANK_CLIENT_ID veya ISBANK_CLIENT_SECRET eksik!");
-    const errorUrl = new URL(
-      "/odeme/hata?error=" + encodeURIComponent("İş Bankası Client ID veya Secret (.env) tanımlanmamış."),
-      siteUrl
-    );
-    return NextResponse.redirect(errorUrl, 303);
+    return respondError("İş Bankası Sanal POS ayarları (.env) tanımlanmamış.", 500);
   }
 
   // 6. AŞAMA 1: JWT TOKEN ALMA (X-isbank-Client-Id & X-isbank-Client-Secret)
@@ -169,11 +201,10 @@ async function handlePaymentInit(request: NextRequest) {
       console.log("[payment/init] 1. Aşama Tamamlandı: JWT Bearer Token temin edildi.");
     } else {
       console.error("[payment/init] 1. Aşama Hatası: JWT token alınamadı:", jwtResult.error);
-      const errorUrl = new URL(
-        "/odeme/hata?error=" + encodeURIComponent("İş Bankası yetkilendirme (JWT) token'ı temin edilemedi: " + (jwtResult.error || "")),
-        siteUrl
+      return respondError(
+        "İş Bankası yetkilendirme (JWT) token'ı temin edilemedi: " + (jwtResult.error || ""),
+        502
       );
-      return NextResponse.redirect(errorUrl, 303);
     }
   }
 
@@ -285,8 +316,7 @@ async function handlePaymentInit(request: NextRequest) {
         })
         .eq("merchant_order_id", merchantOid);
 
-      const errorUrl = new URL("/odeme/hata?error=" + encodeURIComponent(errMsg), siteUrl);
-      return NextResponse.redirect(errorUrl, 303);
+      return respondError(errMsg, 502);
     }
   } catch (networkErr: any) {
     console.error("[payment/init] İş Bankası ödeme servisi bağlantı hatası:", networkErr);
@@ -300,11 +330,10 @@ async function handlePaymentInit(request: NextRequest) {
       })
       .eq("merchant_order_id", merchantOid);
 
-    const errorUrl = new URL(
-      "/odeme/hata?error=" + encodeURIComponent("İş Bankası ödeme sunucusuna bağlanılamadı. Lütfen tekrar deneyin."),
-      siteUrl
+    return respondError(
+      "İş Bankası ödeme sunucusuna bağlanılamadı. Lütfen tekrar deneyin.",
+      502
     );
-    return NextResponse.redirect(errorUrl, 303);
   }
 
   // 10. DOĞRUDAN ÖDEME BAĞLANTISINA (URL) YÖNLENDİRME
@@ -324,12 +353,7 @@ async function handlePaymentInit(request: NextRequest) {
 
   if (!paymentUrl) {
     console.error("[payment/init] Yanıtta ödeme yönlendirme bağlantısı (paymentUrl) bulunamadı:", bankResponseData);
-
-    const errorUrl = new URL(
-      "/odeme/hata?error=" + encodeURIComponent("Ödeme sayfası yönlendirme bağlantısı alınamadı."),
-      siteUrl
-    );
-    return NextResponse.redirect(errorUrl, 303);
+    return respondError("Ödeme sayfası yönlendirme bağlantısı alınamadı.", 502);
   }
 
   // İşlem detayını banka yanıtıyla güncelle
@@ -344,7 +368,16 @@ async function handlePaymentInit(request: NextRequest) {
 
   console.log(`[payment/init] Kullanıcı İş Bankası ödeme ekranına yönlendiriliyor: ${paymentUrl}`);
 
-  // HTTP 303 See Other ile kullanıcıyı doğrudan İş Bankası ödeme sayfasına yönlendir
+  if (isJsonRequest) {
+    return NextResponse.json({
+      success: true,
+      paymentUrl,
+      merchantOrderId: merchantOid,
+      amount: formattedAmount,
+    });
+  }
+
+  // HTTP 303 See Other ile kullanıcıyı doğrudan İş Bankası ödeme sayfasına yönlendir (GET veya doğrudan tarayıcı çağrısı)
   return NextResponse.redirect(paymentUrl, 303);
 }
 
