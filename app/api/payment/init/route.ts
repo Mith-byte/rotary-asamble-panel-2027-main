@@ -198,8 +198,8 @@ async function handlePaymentInit(request: NextRequest) {
   // Nestpay standartlarına göre Euro para birimi: 978
   const currency = "978";
 
-  // Nestpay formatı: 2 haneli ondalık nokta formatı (örn: 350.00)
-  const amountFormatted = finalAmount.toFixed(2);
+  // Nestpay formatı: kesinlikle noktalı ve iki ondalıklı format (örn: 405.00)
+  const amountFormatted = Number(finalAmount).toFixed(2);
 
   // Benzersiz Sipariş Numarası ve Rastgele Güvenlik Değeri (rnd)
   const oid = `usr_${user.id}_${Date.now()}`;
@@ -211,6 +211,18 @@ async function handlePaymentInit(request: NextRequest) {
   const failUrl = callbackUrl;
 
   const hashString = clientId + oid + amountFormatted + okUrl + failUrl + rnd + storeKey;
+
+  console.log("---- HASH DEBUG BAŞLANGICI ----");
+  console.log("1. clientId:", clientId);
+  console.log("2. oid:", oid);
+  console.log("3. amountFormatted:", amountFormatted);
+  console.log("4. okUrl:", okUrl);
+  console.log("5. failUrl:", failUrl);
+  console.log("6. rnd:", rnd);
+  console.log("7. storeKey:", storeKey);
+  console.log("8. BIRLESIM (hashString):", hashString);
+  console.log("---- HASH DEBUG BITISI ----");
+
   const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
 
   console.log("[payment/init] Nestpay est3Dgate Hash üretildi:", {
