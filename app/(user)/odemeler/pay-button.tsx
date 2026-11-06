@@ -3,12 +3,15 @@
 import { useState } from "react";
 import { CreditCard, Loader2, ShieldCheck } from "lucide-react";
 import { formatEuro } from "@/lib/pricing";
+import { formatTry } from "@/lib/exchange-rate";
 
 interface PayButtonProps {
   amount: number;
+  tryAmount?: number | null;
+  eurRate?: number | null;
 }
 
-export function PayButton({ amount }: PayButtonProps) {
+export function PayButton({ amount, tryAmount, eurRate }: PayButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,7 +87,11 @@ export function PayButton({ amount }: PayButtonProps) {
         ) : (
           <CreditCard className="w-4 h-4" />
         )}
-        {loading ? "Ödeme Sayfasına Aktarılıyor…" : `${formatEuro(amount)} — Kredi Kartı ile Öde`}
+        {loading
+          ? "Ödeme Sayfasına Aktarılıyor…"
+          : tryAmount
+          ? `${formatEuro(amount)} (${formatTry(tryAmount)}) — Kredi Kartı ile Öde`
+          : `${formatEuro(amount)} — Kredi Kartı ile Öde`}
       </button>
 
       {error && (

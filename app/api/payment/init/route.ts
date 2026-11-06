@@ -1,7 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse, type NextRequest } from "next/server";
-import { calculateReservationPrice } from "@/lib/pricing";
+import { calculateReservationPrice, formatEuro } from "@/lib/pricing";
+import { getEuroExchangeRate, convertEurToTry, formatTry } from "@/lib/exchange-rate";
 import { checkRateLimit } from "@/lib/rate-limit";
 import crypto from "crypto";
 
@@ -172,7 +173,17 @@ async function handlePaymentInit(request: NextRequest) {
     return respondError("Ödenecek sepet tutarı belirlenemedi.", 400);
   }
 
-  // 5. İŞ BANKASI NESTPAY AYARLARI
+  // 5. GÜNCEL DÖVİZ KURU (TCMB / Fallback) VE TL DÖNÜŞÜMÜ
+  const finalAmountEur = Number(finalAmount);
+  const rateInfo = await getEuroExchangeRate();
+  const eurRate = rateInfo.rate;
+  const rateSource = rateInfo.source;
+
+  const { amountTry, amountFormatted } = convertEurToTry(finalAmountEur, eurRate);
+
+  console.log(`[payment/init] Kur Dönüşümü: ${finalAmountEur} EUR * ${eurRate} (${rateSource}) = ${amountFormatted} TRY`);
+
+  // 6. İŞ BANKASI NESTPAY AYARLARI
   const clientId = (
     process.env.ISBANK_CLIENT_ID ||
     "700669788069"
@@ -207,9 +218,6 @@ async function handlePaymentInit(request: NextRequest) {
     "949"
   ).replace(/^["']|["']$/g, "").trim();
 
-  // Nestpay formatı: kesinlikle noktalı ve iki ondalıklı format (örn: 405.00)
-  const amountFormatted = Number(finalAmount).toFixed(2);
-
   // Benzersiz Sipariş Numarası ve Rastgele Güvenlik Değeri (rnd)
   const oid = `usr_${user.id}_${Date.now()}`;
   const rnd = Date.now().toString() + Math.random().toString().slice(2, 8);
@@ -217,7 +225,7 @@ async function handlePaymentInit(request: NextRequest) {
   const okUrl = callbackUrl;
   const failUrl = callbackUrl;
 
-  // 6. NESTPAY SHA-512 HASH HESAPLAMA (ver3 Standardı)
+  // 7. NESTPAY SHA-512 HASH HESAPLAMA (ver3 Standardı - TL Tutarı Üzerinden)
   // Form parametreleri haritası (terminalid gönderilmez, sadece clientid kullanılır)
   const hashParamsMap: Record<string, string> = {
     clientid: clientId,
@@ -249,40 +257,69 @@ async function handlePaymentInit(request: NextRequest) {
   // SHA-512 Base64 digest
   const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
 
-  console.log("---- HASH DEBUG (INIT ver3) BAŞLANGICI ----");
-  console.log("Sıralı Anahtarlar:", sortedKeys.join(", "));
+  console.log("---- HASH DEBUG (INIT ver3 - TRY) BAŞLANGICI ----");
+  console.log("1. Orijinal EUR Tutarı:", finalAmountEur, "EUR");
+  console.log("2. Uygulanan EUR/TRY Kuru:", eurRate, `(Kaynak: ${rateSource})`);
+  console.log("3. Bankaya Gönderilen TL Tutarı (amount):", amountFormatted, "TRY (currency: 949)");
+  console.log("4. Sıralı Anahtarlar:", sortedKeys.join(", "));
   sortedKeys.forEach((key, index) => {
-    console.log(`${index + 1}. ${key}:`, hashParamsMap[key]);
+    console.log(`   ${index + 1}. ${key}:`, hashParamsMap[key]);
   });
-  console.log("storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
-  console.log("BIRLESIM (hashString):", hashString.replace(storeKey, "***STOREKEY***"));
-  console.log("Üretilen HASH (SHA-512 Base64):", hash);
-  console.log("---- HASH DEBUG (INIT ver3) BITISI ----");
+  console.log("5. storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
+  console.log("6. BIRLESIM (hashString):", hashString.replace(storeKey, "***STOREKEY***"));
+  console.log("7. Üretilen HASH (SHA-512 Base64):", hash);
+  console.log("---- HASH DEBUG (INIT ver3 - TRY) BITISI ----");
 
   console.log("[payment/init] Nestpay est3Dgate Hash üretildi (ver3):", {
     gateUrl,
     clientId,
     oid,
-    amount: amountFormatted,
+    amountEur: finalAmountEur,
+    amountTry: amountTry,
+    amountFormatted,
     currency,
     storetype,
-    rnd,
+    rate: eurRate,
+    rateSource,
   });
 
-  // 7. VERİTABANINA İŞLEM KAYDI (pending)
-  const { error: txError } = await admin.from("payment_transactions").insert({
+  // 8. VERİTABANINA İŞLEM KAYDI (pending - EUR, Kur ve TRY Bilgileriyle)
+  const txPayload = {
     user_id: user.id,
-    amount: finalAmount,
-    currency: currency === "949" ? "TRY" : "EUR",
+    amount: amountTry,
+    currency: "TRY",
     merchant_order_id: oid,
-    status: "pending",
+    status: "pending" as const,
+    pos_response: {
+      original_amount: finalAmountEur,
+      original_currency: "EUR",
+      exchange_rate: eurRate,
+      rate_source: rateSource,
+      rate_updated_at: rateInfo.lastUpdated,
+      try_amount: amountTry,
+      note: "EUR to TRY conversion via TCMB / Fallback",
+    },
+  };
+
+  // Kolonlar varsa doğrudan kolonlara da yazmayı dener, yoksa pos_response üzerinden veriyi eksiksiz saklar
+  let { error: txError } = await admin.from("payment_transactions").insert({
+    ...txPayload,
+    original_amount: finalAmountEur,
+    original_currency: "EUR",
+    exchange_rate: eurRate,
   });
+
+  if (txError && txError.message?.includes("column")) {
+    console.warn("[payment/init] Ek kolonlar bulunamadı, pos_response üzerinden kaydediliyor...");
+    const retry = await admin.from("payment_transactions").insert(txPayload);
+    txError = retry.error;
+  }
 
   if (txError) {
     console.error("[payment/init] Transaction insert uyarısı:", txError.message);
   }
 
-  // 8. NESTPAY EST3DGATE FORM PARAMETRELERİ (ver3)
+  // 9. NESTPAY EST3DGATE FORM PARAMETRELERİ (ver3)
   const formData: Record<string, string> = {
     ...hashParamsMap,
     hash: hash,
@@ -315,7 +352,7 @@ async function handlePaymentInit(request: NextRequest) {
       border-radius: 12px;
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
       text-align: center;
-      max-width: 420px;
+      max-width: 440px;
       width: 90%;
     }
     .spinner {
@@ -325,7 +362,7 @@ async function handlePaymentInit(request: NextRequest) {
       width: 36px;
       height: 36px;
       animation: spin 0.8s linear infinite;
-      margin: 0 auto 1.5rem;
+      margin: 0 auto 1.25rem;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
@@ -334,7 +371,12 @@ async function handlePaymentInit(request: NextRequest) {
   <div class="card">
     <div class="spinner"></div>
     <h2 style="margin:0 0 0.5rem;font-size:1.125rem;">İş Bankası 3D Secure</h2>
-    <p style="margin:0 0 1.5rem;font-size:0.875rem;color:#6b7280;">Güvenli ödeme sayfasına aktarılıyorsunuz, lütfen bekleyin...</p>
+    <p style="margin:0 0 0.25rem;font-size:0.95rem;font-weight:600;color:#111827;">
+      ${finalAmountEur.toFixed(2)} € (Ödenecek: ${amountFormatted} ₺)
+    </p>
+    <p style="margin:0 0 1.25rem;font-size:0.8rem;color:#6b7280;">
+      Güncel Kur: 1 € = ${eurRate.toFixed(2)} ₺ — Güvenli ödeme sayfasına aktarılıyorsunuz...
+    </p>
     <form id="nestpayForm" method="POST" action="${escapeHtml(gateUrl)}">
 ${inputsHtml}
       <noscript>
@@ -356,7 +398,7 @@ ${inputsHtml}
 </body>
 </html>`;
 
-  // 9. YANIT: JSON İSTEMCİ İÇİN FORMDATA & HTMLCONTENT, STANDART ÇAĞRI İÇİN TEXT/HTML
+  // 10. YANIT: JSON İSTEMCİ İÇİN FORMDATA & HTMLCONTENT, STANDART ÇAĞRI İÇİN TEXT/HTML
   if (isJsonRequest) {
     return NextResponse.json({
       success: true,
@@ -364,7 +406,13 @@ ${inputsHtml}
       formData: formData,
       htmlContent: htmlContent,
       merchantOrderId: oid,
-      amount: Number(finalAmount.toFixed(2)),
+      amount: amountTry,
+      amountEur: finalAmountEur,
+      amountTry: amountTry,
+      amountFormatted: amountFormatted,
+      exchangeRate: eurRate,
+      rateSource: rateSource,
+      currency: "TRY",
     });
   }
 

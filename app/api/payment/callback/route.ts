@@ -520,12 +520,25 @@ async function markTransactionCompleted(
   posResponse: any
 ) {
   if (oid) {
+    const { data: currentTx } = await admin
+      .from("payment_transactions")
+      .select("pos_response")
+      .eq("merchant_order_id", oid)
+      .maybeSingle();
+
+    const mergedResponse = {
+      ...(currentTx?.pos_response || {}),
+      bank_callback: posResponse,
+      authCode,
+      completed_at: new Date().toISOString(),
+    };
+
     await admin
       .from("payment_transactions")
       .update({
         status: "completed",
         pos_transaction_id: transId || null,
-        pos_response: { ...posResponse, authCode },
+        pos_response: mergedResponse,
         updated_at: new Date().toISOString(),
       })
       .eq("merchant_order_id", oid);
@@ -549,11 +562,24 @@ async function markTransactionFailed(
   errorMessage: string
 ) {
   if (oid) {
+    const { data: currentTx } = await admin
+      .from("payment_transactions")
+      .select("pos_response")
+      .eq("merchant_order_id", oid)
+      .maybeSingle();
+
+    const mergedResponse = {
+      ...(currentTx?.pos_response || {}),
+      bank_callback: posResponse,
+      error_detail: errorMessage,
+      failed_at: new Date().toISOString(),
+    };
+
     await admin
       .from("payment_transactions")
       .update({
         status: "failed",
-        pos_response: { ...posResponse, error_detail: errorMessage },
+        pos_response: mergedResponse,
         updated_at: new Date().toISOString(),
       })
       .eq("merchant_order_id", oid);

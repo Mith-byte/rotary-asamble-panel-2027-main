@@ -6,6 +6,7 @@ import { Register, Row } from "@/components/plan/register";
 import { CheckCircle, Clock, Users, Baby } from "lucide-react";
 import { PayButton } from "./pay-button";
 import { formatEuro } from "@/lib/pricing";
+import { getEuroExchangeRate, formatTry, formatRate } from "@/lib/exchange-rate";
 
 export default async function OdemelerPage({
   searchParams,
@@ -29,7 +30,7 @@ export default async function OdemelerPage({
   // En son işlemi çek
   const { data: lastTx } = await admin
     .from("payment_transactions")
-    .select("status, amount, created_at, pos_transaction_id")
+    .select("status, amount, currency, created_at, pos_transaction_id, pos_response")
     .eq("user_id", user!.id)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -47,6 +48,12 @@ export default async function OdemelerPage({
 
   const priceIssued = totalPrice != null;
   const isPaid = profile?.status === "accepted";
+
+  // Güncel Euro/TL Kuru ve Dönüşüm Bilgisi
+  const rateInfo = await getEuroExchangeRate();
+  const eurRate = rateInfo.rate;
+  const totalTryAmount =
+    totalPrice != null ? Math.round(totalPrice * eurRate * 100) / 100 : null;
 
   // Oda misafirlerini çek (Döküm için)
   let roomGuests: Array<{
@@ -172,7 +179,13 @@ export default async function OdemelerPage({
                     <span className="text-yellow-400 font-medium">Beklemede</span>
                   )}
                 </Row>
-                <Row label="Tutar">{formatEuro(lastTx.amount)}</Row>
+                <Row label="Tutar">
+                  {lastTx.currency === "TRY"
+                    ? (lastTx.pos_response && typeof lastTx.pos_response === "object" && (lastTx.pos_response as any).original_amount
+                        ? `${formatEuro((lastTx.pos_response as any).original_amount)} (${formatTry(lastTx.amount)})`
+                        : formatTry(lastTx.amount))
+                    : formatEuro(lastTx.amount)}
+                </Row>
                 {lastTx.pos_transaction_id && (
                   <Row label="İşlem No">{lastTx.pos_transaction_id}</Row>
                 )}
@@ -208,7 +221,31 @@ export default async function OdemelerPage({
                   Toplam tutar olan <strong>{formatEuro(totalPrice)}</strong> ödemesini aşağıdaki butona
                   tıklayarak İş Bankası Sanal POS sistemi üzerinden güvenle gerçekleştirebilirsiniz.
                 </p>
-                <PayButton amount={totalPrice} />
+
+                {/* Şeffaf Kur ve TL Tutar Bilgilendirmesi */}
+                <div className="p-3.5 bg-ink/5 border border-ink/10 space-y-1.5 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <span className="text-muted-foreground">Paket Tutarı:</span>
+                    <span className="font-semibold text-ink">{formatEuro(totalPrice)}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <span className="text-muted-foreground">Güncel TCMB Kuru:</span>
+                    <span className="text-ink">1 € = {formatRate(eurRate)} ₺</span>
+                  </div>
+                  <div className="border-t border-ink/10 pt-1.5 flex flex-wrap items-center justify-between gap-1">
+                    <span className="font-medium text-ink">Kartınızdan Çekilecek Toplam Tutar:</span>
+                    <span className="font-bold text-ink text-base">{formatTry(totalTryAmount)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-0.5">
+                    * Kartınızdan tahsilat doğrudan Türk Lirası (₺) olarak yapılacaktır. Döviz hesabına veya kartına ihtiyaç duyulmaz.
+                  </p>
+                </div>
+
+                <PayButton
+                  amount={totalPrice}
+                  tryAmount={totalTryAmount}
+                  eurRate={eurRate}
+                />
               </div>
             )}
           </Room>
