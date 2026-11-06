@@ -170,9 +170,14 @@ async function handlePaymentInit(request: NextRequest) {
 
   // 5. İŞ BANKASI NESTPAY AYARLARI
   const clientId = (
-    process.env.ISBANK_TERMINAL_ID ||
     process.env.ISBANK_CLIENT_ID ||
     "700669788069"
+  ).trim();
+
+  // Son 9 haneli Terminal ID (669788069)
+  const terminalId = (
+    process.env.ISBANK_TERMINAL_ID ||
+    "669788069"
   ).trim();
 
   const storeKey = (
@@ -191,14 +196,18 @@ async function handlePaymentInit(request: NextRequest) {
   ).trim();
 
   const islemtipi = "Auth";
+  const lang = "tr";
 
   const callbackUrl = (
     process.env.ISBANK_CALLBACK_URL ||
-    `${siteUrl}/api/payment/callback`
+    "https://panel.asamble2440.com/api/payment/callback"
   ).trim();
 
-  // Nestpay standartlarına göre Euro para birimi: 978
-  const currency = "978";
+  // Nestpay Türk Lirası ISO sayısal kodu: 949
+  const currency = (
+    process.env.ISBANK_CURRENCY ||
+    "949"
+  ).trim();
 
   // Nestpay formatı: kesinlikle noktalı ve iki ondalıklı format (örn: 405.00)
   const amountFormatted = Number(finalAmount).toFixed(2);
@@ -225,15 +234,18 @@ async function handlePaymentInit(request: NextRequest) {
 
   console.log("---- HASH DEBUG BAŞLANGICI ----");
   console.log("1. clientId:", clientId);
-  console.log("2. oid:", oid);
-  console.log("3. amountFormatted:", amountFormatted);
-  console.log("4. okUrl:", okUrl);
-  console.log("5. failUrl:", failUrl);
-  console.log("6. islemtipi:", islemtipi);
-  console.log("7. storetype:", storetype);
-  console.log("8. rnd:", rnd);
-  console.log("9. storeKey:", storeKey);
-  console.log("10. BIRLESIM (hashString):", hashString);
+  console.log("2. terminalId:", terminalId);
+  console.log("3. oid:", oid);
+  console.log("4. amountFormatted:", amountFormatted);
+  console.log("5. okUrl:", okUrl);
+  console.log("6. failUrl:", failUrl);
+  console.log("7. islemtipi:", islemtipi);
+  console.log("8. storetype:", storetype);
+  console.log("9. rnd:", rnd);
+  console.log("10. storeKey:", storeKey);
+  console.log("11. BIRLESIM (hashString):", hashString);
+  console.log("12. currency:", currency);
+  console.log("13. lang:", lang);
   console.log("---- HASH DEBUG BITISI ----");
 
   const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
@@ -241,6 +253,7 @@ async function handlePaymentInit(request: NextRequest) {
   console.log("[payment/init] Nestpay est3Dgate Hash üretildi:", {
     gateUrl,
     clientId,
+    terminalId,
     oid,
     amount: amountFormatted,
     currency,
@@ -252,7 +265,7 @@ async function handlePaymentInit(request: NextRequest) {
   const { error: txError } = await admin.from("payment_transactions").insert({
     user_id: user.id,
     amount: finalAmount,
-    currency: "EUR",
+    currency: currency === "949" ? "TRY" : "EUR",
     merchant_order_id: oid,
     status: "pending",
   });
@@ -264,6 +277,7 @@ async function handlePaymentInit(request: NextRequest) {
   // 8. NESTPAY EST3DGATE FORM PARAMETRELERİ
   const formData: Record<string, string> = {
     clientid: clientId,
+    terminalid: terminalId,
     amount: amountFormatted,
     oid: oid,
     okUrl: okUrl,
@@ -274,7 +288,7 @@ async function handlePaymentInit(request: NextRequest) {
     storetype: storetype,
     islemtipi: islemtipi,
     currency: currency,
-    lang: "tr",
+    lang: lang,
     refreshtime: "0",
   };
 
