@@ -24,6 +24,10 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function escapeVer3(val: string): string {
+  return (val ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+}
+
 async function handlePaymentInit(request: NextRequest) {
   const isJsonRequest =
     request.headers.get("accept")?.includes("application/json") ||
@@ -174,12 +178,6 @@ async function handlePaymentInit(request: NextRequest) {
     "700669788069"
   ).replace(/^["']|["']$/g, "").trim();
 
-  // Son 9 haneli Terminal ID (669788069)
-  const terminalId = (
-    process.env.ISBANK_TERMINAL_ID ||
-    "669788069"
-  ).replace(/^["']|["']$/g, "").trim();
-
   const storeKey = (
     process.env.ISBANK_STORE_KEY ||
     "EgeKonngre55*"
@@ -216,45 +214,54 @@ async function handlePaymentInit(request: NextRequest) {
   const oid = `usr_${user.id}_${Date.now()}`;
   const rnd = Date.now().toString() + Math.random().toString().slice(2, 8);
 
-  // 6. NESTPAY SHA-512 HASH HESAPLAMA (ver2)
-  // Kural: clientId + oid + amountFormatted + okUrl + failUrl + islemtipi + storetype + rnd + storeKey
   const okUrl = callbackUrl;
   const failUrl = callbackUrl;
 
-  const hashString =
-    clientId +
-    oid +
-    amountFormatted +
-    okUrl +
-    failUrl +
-    islemtipi +
-    storetype +
-    rnd +
-    storeKey;
+  // 6. NESTPAY SHA-512 HASH HESAPLAMA (ver3 Standardı)
+  // Form parametreleri haritası (terminalid gönderilmez, sadece clientid kullanılır)
+  const hashParamsMap: Record<string, string> = {
+    clientid: clientId,
+    storetype: storetype,
+    hashAlgorithm: "ver3",
+    islemtipi: islemtipi,
+    amount: amountFormatted,
+    currency: currency,
+    oid: oid,
+    okUrl: okUrl,
+    failUrl: failUrl,
+    lang: lang,
+    rnd: rnd,
+    taksit: "",
+  };
 
+  // ver3 Kuralı: Anahtarları küçük/büyük harf duyarsız (case-insensitive) alfabetik sıraya diz
+  const sortedKeys = Object.keys(hashParamsMap).sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  );
+
+  // Değerleri escape et ve aralarına | (pipe) koyarak birleştir, sonuna |storeKey ekle
+  let hashString = "";
+  for (const key of sortedKeys) {
+    hashString += `${escapeVer3(hashParamsMap[key])}|`;
+  }
+  hashString += escapeVer3(storeKey);
+
+  // SHA-512 Base64 digest
   const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
 
-  console.log("---- HASH DEBUG (INIT) BAŞLANGICI ----");
-  console.log("1. clientId:", clientId);
-  console.log("2. terminalId:", terminalId);
-  console.log("3. oid:", oid);
-  console.log("4. amountFormatted:", amountFormatted);
-  console.log("5. okUrl:", okUrl);
-  console.log("6. failUrl:", failUrl);
-  console.log("7. islemtipi:", islemtipi);
-  console.log("8. storetype:", storetype);
-  console.log("9. rnd:", rnd);
-  console.log("10. storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
-  console.log("11. BIRLESIM (hashString):", hashString.replace(storeKey, "***STOREKEY***"));
-  console.log("12. Üretilen HASH (SHA-512 Base64):", hash);
-  console.log("13. currency:", currency);
-  console.log("14. lang:", lang);
-  console.log("---- HASH DEBUG (INIT) BITISI ----");
+  console.log("---- HASH DEBUG (INIT ver3) BAŞLANGICI ----");
+  console.log("Sıralı Anahtarlar:", sortedKeys.join(", "));
+  sortedKeys.forEach((key, index) => {
+    console.log(`${index + 1}. ${key}:`, hashParamsMap[key]);
+  });
+  console.log("storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
+  console.log("BIRLESIM (hashString):", hashString.replace(storeKey, "***STOREKEY***"));
+  console.log("Üretilen HASH (SHA-512 Base64):", hash);
+  console.log("---- HASH DEBUG (INIT ver3) BITISI ----");
 
-  console.log("[payment/init] Nestpay est3Dgate Hash üretildi:", {
+  console.log("[payment/init] Nestpay est3Dgate Hash üretildi (ver3):", {
     gateUrl,
     clientId,
-    terminalId,
     oid,
     amount: amountFormatted,
     currency,
@@ -275,22 +282,10 @@ async function handlePaymentInit(request: NextRequest) {
     console.error("[payment/init] Transaction insert uyarısı:", txError.message);
   }
 
-  // 8. NESTPAY EST3DGATE FORM PARAMETRELERİ
+  // 8. NESTPAY EST3DGATE FORM PARAMETRELERİ (ver3)
   const formData: Record<string, string> = {
-    clientid: clientId,
-    terminalid: terminalId,
-    amount: amountFormatted,
-    oid: oid,
-    okUrl: okUrl,
-    failUrl: failUrl,
-    rnd: rnd,
+    ...hashParamsMap,
     hash: hash,
-    hashAlgorithm: "ver2",
-    storetype: storetype,
-    islemtipi: islemtipi,
-    currency: currency,
-    lang: lang,
-    refreshtime: "0",
   };
 
   const inputsHtml = Object.entries(formData)

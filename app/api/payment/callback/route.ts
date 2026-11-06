@@ -26,17 +26,26 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+function escapeVer3(val: string): string {
+  return (val ?? "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+}
+
 function extractXmlTag(xml: string, tag: string): string {
   const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "i"));
   return match ? match[1].trim() : "";
 }
 
 /**
- * Nestpay Dinamik Callback Hash Doğrulama (ver2 / ver3)
+ * Nestpay Dinamik Callback Hash Doğrulama (ver3 ve ver2)
  *
- * Bankanın gönderdiği HASH, HASHPARAMS ve HASHPARAMSVAL değerlerini inceleyerek
- * tüm olası Nestpay imza kurallarını (SHA-512, SHA-1, SHA-256) dener ve
- * uyuşmazlığın kaynağını detaylı loglar.
+ * 1. ver3 Yöntemi: Bankadan dönen tüm parametreler (hash, encoding, countdown hariç)
+ *    küçük/büyük harf duyarsız (case-insensitive) alfabetik dizilir,
+ *    değerleri escape edilerek aralarına | konulup sonuna |storeKey eklenir ve SHA-512 Base64 alınır.
+ * 2. HASHPARAMSVAL + "|" + storeKey Yöntemi: Bankanın hazır gönderdiği HASHPARAMSVAL
+ *    ile storeKey arasına | konarak SHA-512 Base64 alınır.
+ * 3. HASHPARAMSVAL + storeKey (Pipesiz) ve Reconstructed HASHPARAMS yöntemleri yedek olarak denenir.
+ *
+ * Adaylardan herhangi biri bankanın HASH değeriyle eşleşirse imza GEÇERLİ kabul edilir.
  */
 function verifyNestpayCallbackHash(
   rawParams: Record<string, string>,
@@ -53,46 +62,116 @@ function verifyNestpayCallbackHash(
 
   const candidates: Array<{ name: string; computedHash: string; plainString: string }> = [];
 
-  // YÖNTEM 1: Bankanın gönderdiği hazır HASHPARAMSVAL + storeKey (Nestpay ver2 standart yöntemi)
-  if (hashParamsVal) {
-    const plainVal = hashParamsVal + storeKey;
-    const sha512Base64 = crypto.createHash("sha512").update(plainVal, "utf-8").digest("base64");
-    const sha1Base64 = crypto.createHash("sha1").update(plainVal, "utf-8").digest("base64");
-    const sha256Base64 = crypto.createHash("sha256").update(plainVal, "utf-8").digest("base64");
+  // YÖNTEM 1: Nestpay ver3 Standardı (Gelen body'deki hash, encoding, countdown hariç tüm key'ler alfabetik sıralı)
+  const ver3Keys = Object.keys(rawParams).filter((key) => {
+    const lower = key.toLowerCase();
+    return lower !== "hash" && lower !== "encoding" && lower !== "countdown";
+  });
 
-    candidates.push({ name: "HASHPARAMSVAL + storeKey (SHA-512 Base64)", computedHash: sha512Base64, plainString: plainVal });
-    candidates.push({ name: "HASHPARAMSVAL + storeKey (SHA-1 Base64)", computedHash: sha1Base64, plainString: plainVal });
-    candidates.push({ name: "HASHPARAMSVAL + storeKey (SHA-256 Base64)", computedHash: sha256Base64, plainString: plainVal });
+  if (ver3Keys.length > 0) {
+    ver3Keys.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    let ver3Plain = "";
+    for (const key of ver3Keys) {
+      ver3Plain += `${escapeVer3(rawParams[key])}|`;
+    }
+    ver3Plain += escapeVer3(storeKey);
+    const ver3Sha512 = crypto.createHash("sha512").update(ver3Plain, "utf-8").digest("base64");
+    candidates.push({
+      name: "Nestpay ver3 (Alfabetik Parametreler + Pipe + storeKey - SHA-512 Base64)",
+      computedHash: ver3Sha512,
+      plainString: ver3Plain,
+    });
   }
 
-  // YÖNTEM 2: HASHPARAMS listesindeki alan adlarına göre tek tek birleştirme + storeKey
-  let reconstructedVal = "";
-  const paramBreakdown: Record<string, string> = {};
+  // YÖNTEM 2: Bankanın gönderdiği hazır HASHPARAMSVAL + "|" + storeKey (Nestpay Pipe Standardı)
+  if (hashParamsVal) {
+    const plainValWithPipe = `${hashParamsVal}|${escapeVer3(storeKey)}`;
+    const sha512WithPipe = crypto.createHash("sha512").update(plainValWithPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "HASHPARAMSVAL + \"|\" + storeKey (SHA-512 Base64)",
+      computedHash: sha512WithPipe,
+      plainString: plainValWithPipe,
+    });
 
+    const sha1WithPipe = crypto.createHash("sha1").update(plainValWithPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "HASHPARAMSVAL + \"|\" + storeKey (SHA-1 Base64)",
+      computedHash: sha1WithPipe,
+      plainString: plainValWithPipe,
+    });
+
+    const sha256WithPipe = crypto.createHash("sha256").update(plainValWithPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "HASHPARAMSVAL + \"|\" + storeKey (SHA-256 Base64)",
+      computedHash: sha256WithPipe,
+      plainString: plainValWithPipe,
+    });
+  }
+
+  // YÖNTEM 3: HASHPARAMSVAL + storeKey (Pipesiz Nestpay ver2 yöntemi)
+  if (hashParamsVal) {
+    const plainValNoPipe = hashParamsVal + storeKey;
+    const sha512NoPipe = crypto.createHash("sha512").update(plainValNoPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "HASHPARAMSVAL + storeKey (Pipesiz SHA-512 Base64)",
+      computedHash: sha512NoPipe,
+      plainString: plainValNoPipe,
+    });
+
+    const sha1NoPipe = crypto.createHash("sha1").update(plainValNoPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "HASHPARAMSVAL + storeKey (Pipesiz SHA-1 Base64)",
+      computedHash: sha1NoPipe,
+      plainString: plainValNoPipe,
+    });
+
+    const sha256NoPipe = crypto.createHash("sha256").update(plainValNoPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "HASHPARAMSVAL + storeKey (Pipesiz SHA-256 Base64)",
+      computedHash: sha256NoPipe,
+      plainString: plainValNoPipe,
+    });
+  }
+
+  // YÖNTEM 4: HASHPARAMS listesindeki alan adlarına göre tek tek birleştirme
+  const paramBreakdown: Record<string, string> = {};
   if (hashParams) {
-    const paramList = hashParams.split(":");
+    const paramList = hashParams.split(/[:|]/).filter(Boolean);
+    const valuesList: string[] = [];
     for (const param of paramList) {
-      if (!param) continue;
       let val = rawParams[param];
       if (val === undefined) val = rawParams[param.toLowerCase()];
       if (val === undefined) val = rawParams[param.toUpperCase()];
       if (val === undefined) val = "";
 
       paramBreakdown[param] = val;
-      reconstructedVal += val;
+      valuesList.push(val);
     }
 
-    const plainReconstructed = reconstructedVal + storeKey;
-    const sha512Base64Rec = crypto.createHash("sha512").update(plainReconstructed, "utf-8").digest("base64");
-    const sha1Base64Rec = crypto.createHash("sha1").update(plainReconstructed, "utf-8").digest("base64");
-    const sha256Base64Rec = crypto.createHash("sha256").update(plainReconstructed, "utf-8").digest("base64");
+    // Pipe ile birleşim
+    let plainRecWithPipe = "";
+    for (const v of valuesList) {
+      plainRecWithPipe += `${escapeVer3(v)}|`;
+    }
+    plainRecWithPipe += escapeVer3(storeKey);
+    const sha512RecPipe = crypto.createHash("sha512").update(plainRecWithPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "Reconstructed HASHPARAMS + \"|\" + storeKey (SHA-512 Base64)",
+      computedHash: sha512RecPipe,
+      plainString: plainRecWithPipe,
+    });
 
-    candidates.push({ name: "Reconstructed HASHPARAMS + storeKey (SHA-512 Base64)", computedHash: sha512Base64Rec, plainString: plainReconstructed });
-    candidates.push({ name: "Reconstructed HASHPARAMS + storeKey (SHA-1 Base64)", computedHash: sha1Base64Rec, plainString: plainReconstructed });
-    candidates.push({ name: "Reconstructed HASHPARAMS + storeKey (SHA-256 Base64)", computedHash: sha256Base64Rec, plainString: plainReconstructed });
+    // Pipesiz birleşim
+    const plainRecNoPipe = valuesList.join("") + storeKey;
+    const sha512RecNoPipe = crypto.createHash("sha512").update(plainRecNoPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "Reconstructed HASHPARAMS + storeKey (Pipesiz SHA-512 Base64)",
+      computedHash: sha512RecNoPipe,
+      plainString: plainRecNoPipe,
+    });
   }
 
-  // YÖNTEM 3: Init sırasıyla eşleştirme (clientId + oid + amount + okUrl + failUrl + islemtipi + storetype + rnd + storeKey)
+  // YÖNTEM 5: Init sırasıyla eşleştirme (Fallback)
   const clientid = rawParams.clientid || rawParams.clientId || fallbackClientId || "";
   const oid = rawParams.oid || rawParams.ReturnOid || rawParams.orderId || "";
   const amount = rawParams.amount || "";
@@ -103,13 +182,21 @@ function verifyNestpayCallbackHash(
   const rnd = rawParams.rnd || "";
 
   if (clientid && oid && amount && rnd) {
+    const initOrderPipe = `${clientid}|${oid}|${amount}|${okUrl}|${failUrl}|${islemtipi}|${storetype}|${rnd}|${escapeVer3(storeKey)}`;
+    const sha512InitPipe = crypto.createHash("sha512").update(initOrderPipe, "utf-8").digest("base64");
+    candidates.push({
+      name: "Init Sıralaması + Pipe + storeKey (SHA-512 Base64)",
+      computedHash: sha512InitPipe,
+      plainString: initOrderPipe,
+    });
+
     const initOrderPlain = clientid + oid + amount + okUrl + failUrl + islemtipi + storetype + rnd + storeKey;
     const sha512Init = crypto.createHash("sha512").update(initOrderPlain, "utf-8").digest("base64");
-    candidates.push({ name: "Init Sıralaması + storeKey (SHA-512 Base64)", computedHash: sha512Init, plainString: initOrderPlain });
-
-    const standard7Plain = clientid + oid + amount + okUrl + failUrl + rnd + storeKey;
-    const sha512Std = crypto.createHash("sha512").update(standard7Plain, "utf-8").digest("base64");
-    candidates.push({ name: "Standart 7 Parametre + storeKey (SHA-512 Base64)", computedHash: sha512Std, plainString: standard7Plain });
+    candidates.push({
+      name: "Init Sıralaması (Pipesiz) + storeKey (SHA-512 Base64)",
+      computedHash: sha512Init,
+      plainString: initOrderPlain,
+    });
   }
 
   // KONSOLA DETAYLI DEBUG KATMANI
@@ -121,14 +208,16 @@ function verifyNestpayCallbackHash(
   console.log("Kullanılan storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
   console.log("Hesaplanan Adaylar:");
   candidates.forEach((c) => {
-    const isMatch = c.computedHash === incomingHash;
+    const isMatch = c.computedHash === incomingHash || c.computedHash.toLowerCase() === incomingHash.toLowerCase();
     console.log(`  [${isMatch ? "EŞLEŞTİ OK" : "UYUŞMADI"}] ${c.name}`);
     console.log(`     Hesaplanan: ${c.computedHash}`);
     console.log(`     Ham Metin:  ${c.plainString.replace(storeKey, "***STOREKEY***")}`);
   });
   console.log("=====================================================================");
 
-  const matched = candidates.find((c) => c.computedHash === incomingHash);
+  const matched = candidates.find(
+    (c) => c.computedHash === incomingHash || c.computedHash.toLowerCase() === incomingHash.toLowerCase()
+  );
   if (matched) {
     return { valid: true, matchedMethod: matched.name };
   }
@@ -204,10 +293,27 @@ async function handleCallback(request: NextRequest) {
   console.log("Tüm Parametreler (JSON):", JSON.stringify(rawData, null, 2));
   console.log("=========================================================================");
 
-  // 3. TEMEL ALANLARI HARİTALAMA (Mapping)
+  // Vercel tek satır JSON kesilmesine karşı kritik alanların açık ve net loglanması:
+  console.log("==================== NESTPAY KRİTİK ALANLAR ====================");
+  console.log("Response:", rawData.Response || rawData.response || "(BOŞ)");
+  console.log("ProcReturnCode:", rawData.ProcReturnCode || rawData.procreturncode || "(BOŞ)");
+  console.log("mdStatus:", rawData.mdStatus || rawData.mdstatus || "(BOŞ)");
+  console.log("ErrMsg:", rawData.ErrMsg || rawData.errMsg || rawData.errmsg || "(BOŞ)");
+  console.log("mdErrorMsg:", rawData.mdErrorMsg || rawData.mderrormsg || "(BOŞ)");
+  console.log("ErrorMessage:", rawData.ErrorMessage || rawData.errorMessage || rawData.error || "(BOŞ)");
+  console.log("oid:", rawData.oid || rawData.ReturnOid || rawData.orderId || "(BOŞ)");
+  console.log("TransId:", rawData.TransId || rawData.transId || rawData.transid || "(BOŞ)");
+  console.log("AuthCode:", rawData.AuthCode || rawData.authCode || rawData.authcode || "(BOŞ)");
+  console.log("HASH:", rawData.HASH || rawData.hash || "(BOŞ)");
+  console.log("HASHPARAMS:", rawData.HASHPARAMS || rawData.hashparams || "(BOŞ)");
+  console.log("HASHPARAMSVAL:", rawData.HASHPARAMSVAL || rawData.hashparamsval || "(BOŞ)");
+  console.log("================================================================");
+
+  // 3. TEMEL ALANLARI HARİTALAMA (Mapping - Büyük/küçük harf toleranslı)
   const oid = (
     rawData.oid ||
     rawData.ReturnOid ||
+    rawData.returnOid ||
     rawData.order_number ||
     rawData.orderNumber ||
     rawData.orderId ||
@@ -215,14 +321,17 @@ async function handleCallback(request: NextRequest) {
     ""
   ).trim();
 
-  const response = (rawData.Response || "").trim();
-  const procReturnCode = (rawData.ProcReturnCode || "").trim();
-  const mdStatus = (rawData.mdStatus || "").trim();
-  const transId = (rawData.TransId || rawData.transId || rawData.transactionId || "").trim();
-  const authCode = (rawData.AuthCode || "").trim();
+  const response = (rawData.Response || rawData.response || "").trim();
+  const procReturnCode = (rawData.ProcReturnCode || rawData.procreturncode || "").trim();
+  const mdStatus = (rawData.mdStatus || rawData.mdstatus || "").trim();
+  const transId = (rawData.TransId || rawData.transId || rawData.transid || rawData.transactionId || "").trim();
+  const authCode = (rawData.AuthCode || rawData.authCode || rawData.authcode || "").trim();
   const errMsg = (
     rawData.ErrMsg ||
+    rawData.errMsg ||
+    rawData.errmsg ||
     rawData.mdErrorMsg ||
+    rawData.mderrormsg ||
     rawData.ErrorMessage ||
     rawData.errorMessage ||
     rawData.error ||
@@ -488,12 +597,43 @@ export async function POST(request: NextRequest) {
   return handleCallback(request);
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const allParams = Object.fromEntries(searchParams.entries());
 
-  console.error("BANKADAN GET İLE DÖNEN HATA:", allParams);
+  console.error("==================== BANKADAN GET İLE DÖNEN HATA ====================");
+  console.error("URL:", request.url);
+  console.error("Response:", allParams.Response || allParams.response || "(BOŞ)");
+  console.error("ProcReturnCode:", allParams.ProcReturnCode || allParams.procreturncode || "(BOŞ)");
+  console.error("mdStatus:", allParams.mdStatus || allParams.mdstatus || "(BOŞ)");
+  console.error("ErrMsg:", allParams.ErrMsg || allParams.errMsg || allParams.errmsg || "(BOŞ)");
+  console.error("mdErrorMsg:", allParams.mdErrorMsg || allParams.mderrormsg || "(BOŞ)");
+  console.error("ErrorMessage:", allParams.ErrorMessage || allParams.errorMessage || "(BOŞ)");
+  console.error("Tüm GET Parametreleri:", allParams);
+  console.error("=====================================================================");
 
-  // Kullanıcıyı 404'te bırakmamak için ana sayfaya veya hata sayfasına yönlendir
-  return NextResponse.redirect(new URL("/?hata=banka_reddi", request.url));
+  const response = (allParams.Response || allParams.response || "").trim();
+  if (response === "Approved") {
+    return handleCallback(request);
+  }
+
+  const errMsg =
+    allParams.ErrMsg ||
+    allParams.mdErrorMsg ||
+    allParams.ErrorMessage ||
+    allParams.errorMessage ||
+    allParams.error ||
+    "Banka işlemi onaylamadı.";
+  const oid = allParams.oid || allParams.ReturnOid || "";
+
+  const siteUrl =
+    process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin || "https://asamble2440.com";
+
+  return NextResponse.redirect(
+    new URL(
+      `/odeme/hata?oid=${encodeURIComponent(oid)}&error=${encodeURIComponent(errMsg)}`,
+      siteUrl
+    ),
+    303
+  );
 }
