@@ -190,6 +190,8 @@ async function handlePaymentInit(request: NextRequest) {
     "3d_pay_hosting"
   ).trim();
 
+  const islemtipi = "Auth";
+
   const callbackUrl = (
     process.env.ISBANK_CALLBACK_URL ||
     `${siteUrl}/api/payment/callback`
@@ -206,11 +208,20 @@ async function handlePaymentInit(request: NextRequest) {
   const rnd = Date.now().toString() + Math.random().toString().slice(2, 8);
 
   // 6. NESTPAY SHA-512 HASH HESAPLAMA (ver2)
-  // Kural: clientId + oid + amount + okUrl + failUrl + rnd + storeKey
+  // Kural: clientId + oid + amountFormatted + okUrl + failUrl + islemtipi + storetype + rnd + storeKey
   const okUrl = callbackUrl;
   const failUrl = callbackUrl;
 
-  const hashString = clientId + oid + amountFormatted + okUrl + failUrl + rnd + storeKey;
+  const hashString =
+    clientId +
+    oid +
+    amountFormatted +
+    okUrl +
+    failUrl +
+    islemtipi +
+    storetype +
+    rnd +
+    storeKey;
 
   console.log("---- HASH DEBUG BAŞLANGICI ----");
   console.log("1. clientId:", clientId);
@@ -218,9 +229,11 @@ async function handlePaymentInit(request: NextRequest) {
   console.log("3. amountFormatted:", amountFormatted);
   console.log("4. okUrl:", okUrl);
   console.log("5. failUrl:", failUrl);
-  console.log("6. rnd:", rnd);
-  console.log("7. storeKey:", storeKey);
-  console.log("8. BIRLESIM (hashString):", hashString);
+  console.log("6. islemtipi:", islemtipi);
+  console.log("7. storetype:", storetype);
+  console.log("8. rnd:", rnd);
+  console.log("9. storeKey:", storeKey);
+  console.log("10. BIRLESIM (hashString):", hashString);
   console.log("---- HASH DEBUG BITISI ----");
 
   const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
@@ -259,7 +272,7 @@ async function handlePaymentInit(request: NextRequest) {
     hash: hash,
     hashAlgorithm: "ver2",
     storetype: storetype,
-    islemtipi: "Auth",
+    islemtipi: islemtipi,
     currency: currency,
     lang: "tr",
     refreshtime: "0",
