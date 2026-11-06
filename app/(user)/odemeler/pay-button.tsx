@@ -28,23 +28,40 @@ export function PayButton({ amount }: PayButtonProps) {
 
       const data = await res.json();
 
-      if (!res.ok || !data.success || (!data.paymentUrl && !data.htmlContent)) {
+      if (!res.ok || !data.success || (!data.gatewayUrl && !data.paymentUrl && !data.htmlContent)) {
         setError(data.error || "Ödeme başlatılamadı. Lütfen tekrar deneyin.");
         setLoading(false);
         return;
       }
 
-      // Bankanın 3D Secure ödeme sayfasına yönlendir
-      if (data.paymentUrl) {
-        window.location.href = data.paymentUrl;
+      // Nestpay est3Dgate dinamik POST formu oluştur ve submit et
+      if (data.gatewayUrl && data.formData) {
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = data.gatewayUrl;
+        Object.entries(data.formData).forEach(([key, value]) => {
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = key;
+          input.value = String(value);
+          form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
         return;
       }
 
-      // Banka 3D HTML form içeriği döndüyse DOM'a bas
+      // Alternatif: HTML form içeriği geldiyse sayfaya yaz
       if (data.htmlContent) {
         document.open();
         document.write(data.htmlContent);
         document.close();
+        return;
+      }
+
+      // Doğrudan yönlendirme URL'i varsa aktar
+      if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
         return;
       }
     } catch (err: any) {
@@ -76,7 +93,7 @@ export function PayButton({ amount }: PayButtonProps) {
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-        <span>İş Bankası İşPOS 3D Secure 256-bit SSL korumalı güvenli ödeme</span>
+        <span>İş Bankası Sanal POS (Nestpay) 3D Secure 256-bit SSL korumalı güvenli ödeme</span>
       </div>
     </div>
   );
