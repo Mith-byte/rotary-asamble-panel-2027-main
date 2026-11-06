@@ -172,28 +172,28 @@ async function handlePaymentInit(request: NextRequest) {
   const clientId = (
     process.env.ISBANK_CLIENT_ID ||
     "700669788069"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   // Son 9 haneli Terminal ID (669788069)
   const terminalId = (
     process.env.ISBANK_TERMINAL_ID ||
     "669788069"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   const storeKey = (
     process.env.ISBANK_STORE_KEY ||
     "EgeKonngre55*"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   const gateUrl = (
     process.env.ISBANK_3D_GATE_URL ||
     "https://sanalpos.isbank.com.tr/fim/est3Dgate"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   const storetype = (
     process.env.ISBANK_STORETYPE ||
     "3d_pay_hosting"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   const islemtipi = "Auth";
   const lang = "tr";
@@ -201,13 +201,13 @@ async function handlePaymentInit(request: NextRequest) {
   const callbackUrl = (
     process.env.ISBANK_CALLBACK_URL ||
     "https://panel.asamble2440.com/api/payment/callback"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   // Nestpay Türk Lirası ISO sayısal kodu: 949
   const currency = (
     process.env.ISBANK_CURRENCY ||
     "949"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   // Nestpay formatı: kesinlikle noktalı ve iki ondalıklı format (örn: 405.00)
   const amountFormatted = Number(finalAmount).toFixed(2);
@@ -232,7 +232,9 @@ async function handlePaymentInit(request: NextRequest) {
     rnd +
     storeKey;
 
-  console.log("---- HASH DEBUG BAŞLANGICI ----");
+  const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
+
+  console.log("---- HASH DEBUG (INIT) BAŞLANGICI ----");
   console.log("1. clientId:", clientId);
   console.log("2. terminalId:", terminalId);
   console.log("3. oid:", oid);
@@ -242,13 +244,12 @@ async function handlePaymentInit(request: NextRequest) {
   console.log("7. islemtipi:", islemtipi);
   console.log("8. storetype:", storetype);
   console.log("9. rnd:", rnd);
-  console.log("10. storeKey:", storeKey);
-  console.log("11. BIRLESIM (hashString):", hashString);
-  console.log("12. currency:", currency);
-  console.log("13. lang:", lang);
-  console.log("---- HASH DEBUG BITISI ----");
-
-  const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
+  console.log("10. storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
+  console.log("11. BIRLESIM (hashString):", hashString.replace(storeKey, "***STOREKEY***"));
+  console.log("12. Üretilen HASH (SHA-512 Base64):", hash);
+  console.log("13. currency:", currency);
+  console.log("14. lang:", lang);
+  console.log("---- HASH DEBUG (INIT) BITISI ----");
 
   console.log("[payment/init] Nestpay est3Dgate Hash üretildi:", {
     gateUrl,

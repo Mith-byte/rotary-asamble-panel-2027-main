@@ -33,55 +33,109 @@ function extractXmlTag(xml: string, tag: string): string {
 
 /**
  * Nestpay Dinamik Callback Hash Doğrulama (ver2 / ver3)
+ *
+ * Bankanın gönderdiği HASH, HASHPARAMS ve HASHPARAMSVAL değerlerini inceleyerek
+ * tüm olası Nestpay imza kurallarını (SHA-512, SHA-1, SHA-256) dener ve
+ * uyuşmazlığın kaynağını detaylı loglar.
  */
 function verifyNestpayCallbackHash(
   rawParams: Record<string, string>,
-  storeKey: string
-): { valid: boolean; reason?: string } {
-  const incomingHash = rawParams.HASH || rawParams.hash || "";
-  const hashParams = rawParams.HASHPARAMS || rawParams.hashparams || "";
+  storeKey: string,
+  fallbackClientId?: string
+): { valid: boolean; matchedMethod?: string; reason?: string } {
+  const incomingHash = (rawParams.HASH || rawParams.hash || "").trim();
+  const hashParams = (rawParams.HASHPARAMS || rawParams.hashparams || "").trim();
+  const hashParamsVal = (rawParams.HASHPARAMSVAL || rawParams.hashparamsval || "").trim();
 
   if (!incomingHash) {
     return { valid: false, reason: "Callback yanıtında HASH değeri bulunamadı." };
   }
 
-  if (!hashParams) {
-    return { valid: false, reason: "Callback yanıtında HASHPARAMS değeri bulunamadı." };
+  const candidates: Array<{ name: string; computedHash: string; plainString: string }> = [];
+
+  // YÖNTEM 1: Bankanın gönderdiği hazır HASHPARAMSVAL + storeKey (Nestpay ver2 standart yöntemi)
+  if (hashParamsVal) {
+    const plainVal = hashParamsVal + storeKey;
+    const sha512Base64 = crypto.createHash("sha512").update(plainVal, "utf-8").digest("base64");
+    const sha1Base64 = crypto.createHash("sha1").update(plainVal, "utf-8").digest("base64");
+    const sha256Base64 = crypto.createHash("sha256").update(plainVal, "utf-8").digest("base64");
+
+    candidates.push({ name: "HASHPARAMSVAL + storeKey (SHA-512 Base64)", computedHash: sha512Base64, plainString: plainVal });
+    candidates.push({ name: "HASHPARAMSVAL + storeKey (SHA-1 Base64)", computedHash: sha1Base64, plainString: plainVal });
+    candidates.push({ name: "HASHPARAMSVAL + storeKey (SHA-256 Base64)", computedHash: sha256Base64, plainString: plainVal });
   }
 
-  // HASHPARAMS içindeki alan adlarını iki nokta üst üste (:) ile ayır
-  const paramList = hashParams.split(":");
-  let hashVal = "";
+  // YÖNTEM 2: HASHPARAMS listesindeki alan adlarına göre tek tek birleştirme + storeKey
+  let reconstructedVal = "";
+  const paramBreakdown: Record<string, string> = {};
 
-  for (const param of paramList) {
-    if (!param) continue;
-    // Parametre değerini al (küçük/büyük harf toleranslı)
-    const val = rawParams[param] !== undefined ? rawParams[param] : (rawParams[param.toLowerCase()] ?? "");
-    hashVal += val;
+  if (hashParams) {
+    const paramList = hashParams.split(":");
+    for (const param of paramList) {
+      if (!param) continue;
+      let val = rawParams[param];
+      if (val === undefined) val = rawParams[param.toLowerCase()];
+      if (val === undefined) val = rawParams[param.toUpperCase()];
+      if (val === undefined) val = "";
+
+      paramBreakdown[param] = val;
+      reconstructedVal += val;
+    }
+
+    const plainReconstructed = reconstructedVal + storeKey;
+    const sha512Base64Rec = crypto.createHash("sha512").update(plainReconstructed, "utf-8").digest("base64");
+    const sha1Base64Rec = crypto.createHash("sha1").update(plainReconstructed, "utf-8").digest("base64");
+    const sha256Base64Rec = crypto.createHash("sha256").update(plainReconstructed, "utf-8").digest("base64");
+
+    candidates.push({ name: "Reconstructed HASHPARAMS + storeKey (SHA-512 Base64)", computedHash: sha512Base64Rec, plainString: plainReconstructed });
+    candidates.push({ name: "Reconstructed HASHPARAMS + storeKey (SHA-1 Base64)", computedHash: sha1Base64Rec, plainString: plainReconstructed });
+    candidates.push({ name: "Reconstructed HASHPARAMS + storeKey (SHA-256 Base64)", computedHash: sha256Base64Rec, plainString: plainReconstructed });
   }
 
-  // Sona gizli storeKey ekle
-  hashVal += storeKey;
+  // YÖNTEM 3: Init sırasıyla eşleştirme (clientId + oid + amount + okUrl + failUrl + islemtipi + storetype + rnd + storeKey)
+  const clientid = rawParams.clientid || rawParams.clientId || fallbackClientId || "";
+  const oid = rawParams.oid || rawParams.ReturnOid || rawParams.orderId || "";
+  const amount = rawParams.amount || "";
+  const okUrl = rawParams.okUrl || rawParams.okurl || "";
+  const failUrl = rawParams.failUrl || rawParams.failurl || "";
+  const islemtipi = rawParams.islemtipi || "Auth";
+  const storetype = rawParams.storetype || "3d_pay_hosting";
+  const rnd = rawParams.rnd || "";
 
-  // SHA-512 Base64
-  const calculatedHashSha512 = crypto
-    .createHash("sha512")
-    .update(hashVal, "utf-8")
-    .digest("base64");
+  if (clientid && oid && amount && rnd) {
+    const initOrderPlain = clientid + oid + amount + okUrl + failUrl + islemtipi + storetype + rnd + storeKey;
+    const sha512Init = crypto.createHash("sha512").update(initOrderPlain, "utf-8").digest("base64");
+    candidates.push({ name: "Init Sıralaması + storeKey (SHA-512 Base64)", computedHash: sha512Init, plainString: initOrderPlain });
 
-  // SHA-1 Base64 (Eski Nestpay terminalleri için fallback)
-  const calculatedHashSha1 = crypto
-    .createHash("sha1")
-    .update(hashVal, "utf-8")
-    .digest("base64");
+    const standard7Plain = clientid + oid + amount + okUrl + failUrl + rnd + storeKey;
+    const sha512Std = crypto.createHash("sha512").update(standard7Plain, "utf-8").digest("base64");
+    candidates.push({ name: "Standart 7 Parametre + storeKey (SHA-512 Base64)", computedHash: sha512Std, plainString: standard7Plain });
+  }
 
-  const isValid =
-    calculatedHashSha512 === incomingHash ||
-    calculatedHashSha1 === incomingHash;
+  // KONSOLA DETAYLI DEBUG KATMANI
+  console.log("==================== NESTPAY CALLBACK HASH DEBUG ====================");
+  console.log("Bankadan Gelen HASH:", incomingHash);
+  console.log("Bankadan Gelen HASHPARAMS:", hashParams || "(YOK)");
+  console.log("Bankadan Gelen HASHPARAMSVAL:", hashParamsVal || "(YOK)");
+  console.log("HASHPARAMS Parametre Dökümü:", paramBreakdown);
+  console.log("Kullanılan storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
+  console.log("Hesaplanan Adaylar:");
+  candidates.forEach((c) => {
+    const isMatch = c.computedHash === incomingHash;
+    console.log(`  [${isMatch ? "EŞLEŞTİ OK" : "UYUŞMADI"}] ${c.name}`);
+    console.log(`     Hesaplanan: ${c.computedHash}`);
+    console.log(`     Ham Metin:  ${c.plainString.replace(storeKey, "***STOREKEY***")}`);
+  });
+  console.log("=====================================================================");
+
+  const matched = candidates.find((c) => c.computedHash === incomingHash);
+  if (matched) {
+    return { valid: true, matchedMethod: matched.name };
+  }
 
   return {
-    valid: isValid,
-    reason: isValid ? undefined : `Hash uyuşmazlığı: Beklenen SHA-512 (${calculatedHashSha512}) veya SHA-1 (${calculatedHashSha1}), Gelen: (${incomingHash})`,
+    valid: false,
+    reason: `Bankadan gelen HASH (${incomingHash}) ile hesaplanan hiçbir aday eşleşmedi. (Denendi: ${candidates.length} farklı yöntem)`,
   };
 }
 
@@ -143,14 +197,12 @@ async function handleCallback(request: NextRequest) {
     }
   });
 
-  console.log("[payment/callback] Nestpay gelen callback verisi:", {
-    oid: rawData.oid || rawData.ReturnOid || rawData.order_number,
-    Response: rawData.Response,
-    ProcReturnCode: rawData.ProcReturnCode,
-    mdStatus: rawData.mdStatus,
-    TransId: rawData.TransId,
-    amount: rawData.amount,
-  });
+  console.log("==================== NESTPAY CALLBACK GELEN HAM VERİ ====================");
+  console.log("URL:", request.url);
+  console.log("Method:", request.method);
+  console.log("Content-Type:", contentType);
+  console.log("Tüm Parametreler (JSON):", JSON.stringify(rawData, null, 2));
+  console.log("=========================================================================");
 
   // 3. TEMEL ALANLARI HARİTALAMA (Mapping)
   const oid = (
@@ -183,13 +235,17 @@ async function handleCallback(request: NextRequest) {
   const eci = (rawData.eci || "").trim();
   const xid = (rawData.xid || "").trim();
 
-  const storeKey = (process.env.ISBANK_STORE_KEY || "EgeKonngre55*").trim();
+  const storeKey = (
+    process.env.ISBANK_STORE_KEY ||
+    "EgeKonngre55*"
+  ).replace(/^["']|["']$/g, "").trim();
+
   const clientId = (
-    process.env.ISBANK_TERMINAL_ID ||
     process.env.ISBANK_CLIENT_ID ||
     rawData.clientid ||
+    rawData.clientId ||
     "700669788069"
-  ).trim();
+  ).replace(/^["']|["']$/g, "").trim();
 
   const admin = createAdminClient();
 
@@ -216,20 +272,20 @@ async function handleCallback(request: NextRequest) {
   }
 
   // 5. NESTPAY CALLBACK HASH İMZA DOĞRULAMASI
-  // Bankadan HASHPARAMS geldiyse imza doğrulaması yap
-  if (rawData.HASHPARAMS || rawData.hashparams) {
-    const hashCheck = verifyNestpayCallbackHash(rawData, storeKey);
+  // Bankadan HASHPARAMS veya HASH geldiyse imza doğrulaması yap
+  if (rawData.HASHPARAMS || rawData.hashparams || rawData.HASH || rawData.hash) {
+    const hashCheck = verifyNestpayCallbackHash(rawData, storeKey, clientId);
     if (!hashCheck.valid) {
       console.error("[payment/callback] Güvenlik uyarısı: Hash doğrulaması başarısız!", hashCheck.reason);
-      await markTransactionFailed(admin, oid, rawData, "Güvenlik imzası doğrulanmadı (Hash Mismatch)");
+      await markTransactionFailed(admin, oid, rawData, `Güvenlik imzası doğrulanmadı: ${hashCheck.reason}`);
       return handleFailure(
         oid,
-        "Güvenlik imzası doğrulanamadı. Sahtecilik şüphesi nedeniyle işlem durduruldu.",
+        `Güvenlik imzası doğrulanamadı: ${hashCheck.reason}`,
         isWebhook,
         siteUrl
       );
     }
-    console.log("[payment/callback] Nestpay callback hash doğrulaması başarılı.");
+    console.log(`[payment/callback] Nestpay callback hash doğrulaması başarılı! (Kullanılan Yöntem: ${hashCheck.matchedMethod})`);
   }
 
   // Kullanıcı ID tespiti
