@@ -5,6 +5,11 @@ const PUBLIC_PATHS = ["/giris", "/kayit", "/kvkk"];
 const PROFILE_COMPLETION_PATH = "/profil-tamamla";
 
 export async function middleware(request: NextRequest) {
+  // Banka Sanal POS Callback (Webhook) ve ödeme rotalarını oturum kontrolünden muaf tut
+  if (request.nextUrl.pathname.startsWith("/api/payment")) {
+    return NextResponse.next();
+  }
+
   const { user, profileComplete, supabaseResponse } = await updateSession(request);
   const path = request.nextUrl.pathname;
 
@@ -37,6 +42,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/payment|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
