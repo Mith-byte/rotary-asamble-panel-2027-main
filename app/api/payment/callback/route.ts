@@ -86,6 +86,12 @@ function verifyNestpayCallbackHash(
 }
 
 async function handleCallback(request: NextRequest) {
+  console.log("BANKADAN POST GELDİ - handleCallback", {
+    url: request.url,
+    method: request.method,
+    contentType: request.headers.get("content-type"),
+  });
+
   // 1. RATE LIMITING KORUMASI
   const forwardedFor = request.headers.get("x-forwarded-for");
   const clientIp = forwardedFor ? forwardedFor.split(",")[0].trim() : "127.0.0.1";
@@ -419,9 +425,19 @@ function redirectTo(path: string, siteUrl: string) {
 }
 
 export async function POST(request: NextRequest) {
+  console.log("BANKADAN POST GELDİ", {
+    url: request.url,
+    contentType: request.headers.get("content-type"),
+  });
   return handleCallback(request);
 }
 
-export async function GET(request: NextRequest) {
-  return handleCallback(request);
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const allParams = Object.fromEntries(searchParams.entries());
+
+  console.error("BANKADAN GET İLE DÖNEN HATA:", allParams);
+
+  // Kullanıcıyı 404'te bırakmamak için ana sayfaya veya hata sayfasına yönlendir
+  return NextResponse.redirect(new URL("/?hata=banka_reddi", request.url));
 }
