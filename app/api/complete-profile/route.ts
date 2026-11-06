@@ -21,6 +21,8 @@ export async function POST(request: Request) {
   const {
     firstName,
     lastName,
+    tcKimlik,
+    birthDate,
     phone,
     club,
     gorev,
@@ -32,8 +34,16 @@ export async function POST(request: Request) {
     children = [],
   } = body;
 
-  if (!firstName || !lastName || !phone || !club || !gender || !packageId) {
+  if (!firstName || !lastName || !phone || !club || !gender || !packageId || !tcKimlik || !birthDate) {
     return NextResponse.json({ error: "Tüm zorunlu alanlar doldurulmalıdır" }, { status: 400 });
+  }
+
+  const tcRegex = /^[1-9][0-9]{10}$/;
+  if (!tcRegex.test(String(tcKimlik).trim())) {
+    return NextResponse.json(
+      { error: "Ana katılımcı için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
+      { status: 400 }
+    );
   }
 
   const duty = typeof gorev === "string" && DUTY_IDS.includes(gorev) ? gorev : null;
@@ -78,34 +88,73 @@ export async function POST(request: Request) {
   const adultPrice = (pkg[`${pricingType}_price` as const] as number) ?? 0;
 
   // 1. ODA TİPİNE GÖRE DOĞRULAMA (Validation)
-  // 2 Kişilik Oda: Oda arkadaşı var seçildiyse ad ve soyad zorunlu
+  // 2 Kişilik Oda: Oda arkadaşı var seçildiyse ad, soyad, tc, doğum tarihi, email, telefon zorunlu
   if (capacity === 2 && hasRoommate) {
-    if (!roommate?.firstName?.trim() || !roommate?.lastName?.trim()) {
+    if (
+      !roommate?.firstName?.trim() ||
+      !roommate?.lastName?.trim() ||
+      !roommate?.tcKimlik?.trim() ||
+      !roommate?.birthDate ||
+      !roommate?.email?.trim() ||
+      !roommate?.phone?.trim()
+    ) {
       return NextResponse.json(
-        { error: "2. kişi (oda arkadaşı) için ad ve soyad zorunludur." },
+        { error: "2. kişi (oda arkadaşı) için Ad, Soyad, TC Kimlik No, Doğum Tarihi, E-posta ve Telefon zorunludur." },
+        { status: 400 }
+      );
+    }
+
+    if (!tcRegex.test(String(roommate.tcKimlik).trim())) {
+      return NextResponse.json(
+        { error: "Oda arkadaşı için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
         { status: 400 }
       );
     }
   }
 
-  // 3 Kişilik Oda (Aile Odası): 2. Yetişkin zorunlu, çocukların bilgileri eksiksiz olmalı
+  // 3 Kişilik Oda (Aile Odası): Zorunlu 2 Yetişkin + en az 1 Çocuk
   if (capacity === 3) {
-    if (!adult2?.firstName?.trim() || !adult2?.lastName?.trim()) {
+    if (
+      !adult2?.firstName?.trim() ||
+      !adult2?.lastName?.trim() ||
+      !adult2?.tcKimlik?.trim() ||
+      !adult2?.birthDate ||
+      !adult2?.email?.trim() ||
+      !adult2?.phone?.trim()
+    ) {
       return NextResponse.json(
-        { error: "Aile odasında 2. yetişkin bilgileri zorunludur." },
+        { error: "Aile odasında 2. Yetişkin için Ad, Soyad, TC Kimlik No, Doğum Tarihi, E-posta ve Telefon zorunludur." },
         { status: 400 }
       );
     }
 
-    if (Array.isArray(children)) {
-      for (let i = 0; i < children.length; i++) {
-        const c = children[i];
-        if (!c.firstName?.trim() || !c.lastName?.trim() || !c.birthDate) {
-          return NextResponse.json(
-            { error: `${i + 1}. çocuk için ad, soyad ve doğum tarihi zorunludur.` },
-            { status: 400 }
-          );
-        }
+    if (!tcRegex.test(String(adult2.tcKimlik).trim())) {
+      return NextResponse.json(
+        { error: "2. Yetişkin için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
+        { status: 400 }
+      );
+    }
+
+    if (!Array.isArray(children) || children.length < 1) {
+      return NextResponse.json(
+        { error: "Aile odası için en az 1 çocuk bilgisi zorunludur (2 Yetişkin + 1 Çocuk yapısı)." },
+        { status: 400 }
+      );
+    }
+
+    for (let i = 0; i < children.length; i++) {
+      const c = children[i];
+      if (!c?.firstName?.trim() || !c?.lastName?.trim() || !c?.tcKimlik?.trim() || !c?.birthDate) {
+        return NextResponse.json(
+          { error: `${i + 1}. çocuk için Ad, Soyad, TC Kimlik No ve Doğum Tarihi zorunludur.` },
+          { status: 400 }
+        );
+      }
+      if (!tcRegex.test(String(c.tcKimlik).trim())) {
+        return NextResponse.json(
+          { error: `${i + 1}. çocuk için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz.` },
+          { status: 400 }
+        );
       }
     }
   }
@@ -174,10 +223,12 @@ export async function POST(request: Request) {
         guest_type: "adult" | "child";
         first_name: string;
         last_name: string;
+        tc_kimlik?: string | null;
+        birth_date: string | null;
+        email: string | null;
         phone: string | null;
         gender: string;
         club: string | null;
-        birth_date: string | null;
         age: number | null;
         price: number;
       }> = [];
@@ -190,10 +241,12 @@ export async function POST(request: Request) {
           guest_type: "adult",
           first_name: roommate.firstName.trim(),
           last_name: roommate.lastName.trim(),
+          tc_kimlik: roommate.tcKimlik ? String(roommate.tcKimlik).trim() : null,
+          birth_date: roommate.birthDate || null,
+          email: roommate.email ? roommate.email.trim() : null,
           phone: roommate.phone ? roommate.phone.trim() : null,
           gender: roommate.gender || "Erkek",
-          club: roommate.club || club,
-          birth_date: null,
+          club: roommate.club?.trim() || club,
           age: null,
           price: adultPrice,
         });
@@ -207,10 +260,12 @@ export async function POST(request: Request) {
           guest_type: "adult",
           first_name: adult2.firstName.trim(),
           last_name: adult2.lastName.trim(),
+          tc_kimlik: adult2.tcKimlik ? String(adult2.tcKimlik).trim() : null,
+          birth_date: adult2.birthDate || null,
+          email: adult2.email ? adult2.email.trim() : null,
           phone: adult2.phone ? adult2.phone.trim() : null,
           gender: adult2.gender || "Kadın",
-          club: adult2.club || club,
-          birth_date: null,
+          club: adult2.club?.trim() || club,
           age: null,
           price: adultPrice,
         });
@@ -229,10 +284,12 @@ export async function POST(request: Request) {
               guest_type: "child",
               first_name: child.firstName.trim(),
               last_name: child.lastName.trim(),
+              tc_kimlik: child.tcKimlik ? String(child.tcKimlik).trim() : null,
+              birth_date: child.birthDate || null,
+              email: null,
               phone: null,
               gender: child.gender || "Erkek",
               club: null,
-              birth_date: child.birthDate,
               age: childAge,
               price: childItem?.total ?? 0,
             });
@@ -241,9 +298,19 @@ export async function POST(request: Request) {
       }
 
       if (guestsToInsert.length > 0) {
-        const { error: guestError } = await admin
+        let { error: guestError } = await admin
           .from("room_guests")
           .insert(guestsToInsert);
+
+        if (guestError && guestError.message?.toLowerCase().includes("tc_kimlik")) {
+          console.warn("[complete-profile] Fallback: tc_kimlik column not found in room_guests. Retrying without tc_kimlik. Please run migration 00015.");
+          const fallbackGuests = guestsToInsert.map((g) => {
+            const { tc_kimlik: _, ...rest } = g;
+            return rest;
+          });
+          const retryRes = await admin.from("room_guests").insert(fallbackGuests);
+          guestError = retryRes.error;
+        }
 
         if (guestError) {
           console.error("[complete-profile] Room guests insertion failed:", guestError);
@@ -256,6 +323,8 @@ export async function POST(request: Request) {
   const profileUpdate: Record<string, unknown> = {
     first_name: firstName.trim(),
     last_name: lastName.trim(),
+    tc_kimlik: String(tcKimlik).trim(),
+    birth_date: birthDate,
     phone,
     club,
     gender,
@@ -273,10 +342,28 @@ export async function POST(request: Request) {
     profileUpdate.gorev = duty;
   }
 
-  const { error: updateError } = await admin
+  let { error: updateError } = await admin
     .from("profiles")
     .update(profileUpdate)
     .eq("id", user.id);
+
+  if (
+    updateError &&
+    (updateError.message?.toLowerCase().includes("tc_kimlik") ||
+      updateError.message?.toLowerCase().includes("birth_date"))
+  ) {
+    console.warn(
+      "[complete-profile] Fallback: tc_kimlik or birth_date column not found in profiles. Retrying without them. Please run migration 00015."
+    );
+    const fallbackProfile = { ...profileUpdate };
+    delete fallbackProfile.tc_kimlik;
+    delete fallbackProfile.birth_date;
+    const retryRes = await admin
+      .from("profiles")
+      .update(fallbackProfile)
+      .eq("id", user.id);
+    updateError = retryRes.error;
+  }
 
   if (updateError) {
     console.error("[complete-profile] Profile update failed:", updateError);

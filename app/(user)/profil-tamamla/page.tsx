@@ -33,9 +33,22 @@ import { Register, Row } from "@/components/plan/register";
 
 const GENDERS = ["Erkek", "Kadın"] as const;
 
+function isValidTcKimlik(val: string): boolean {
+  return /^[1-9][0-9]{10}$/.test(val || "");
+}
+
+function isValidEmail(val: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val || "");
+}
+
 const infoSchema = z.object({
   firstName: z.string().min(1, "Ad gerekli"),
   lastName: z.string().min(1, "Soyad gerekli"),
+  tcKimlik: z
+    .string()
+    .min(1, "T.C. Kimlik Numarası gerekli")
+    .regex(/^[1-9][0-9]{10}$/, "Geçerli bir 11 haneli T.C. Kimlik Numarası girin"),
+  birthDate: z.string().min(1, "Doğum tarihi gerekli"),
   phone: z
     .string()
     .min(1, "Telefon numarası gerekli")
@@ -99,24 +112,44 @@ export default function ProfileCompletionPage() {
   const [roommate, setRoommate] = useState<AdultGuest>({
     firstName: "",
     lastName: "",
+    tcKimlik: "",
+    birthDate: "",
+    email: "",
     phone: "",
     gender: "Erkek",
+    club: "",
+    gorev: "",
   });
   const [adult2, setAdult2] = useState<AdultGuest>({
     firstName: "",
     lastName: "",
+    tcKimlik: "",
+    birthDate: "",
+    email: "",
     phone: "",
     gender: "Kadın",
+    club: "",
+    gorev: "",
   });
-  const [childCount, setChildCount] = useState<number>(0);
-  const [childrenList, setChildrenList] = useState<ChildGuest[]>([]);
+  const [childCount, setChildCount] = useState<number>(1);
+  const [childrenList, setChildrenList] = useState<ChildGuest[]>([
+    { firstName: "", lastName: "", tcKimlik: "", birthDate: "", gender: "Erkek" },
+  ]);
   const [occupantErrors, setOccupantErrors] = useState<Record<string, string>>({});
 
   const [country, setCountry] = useState<Country>(COUNTRIES[0]);
 
   const infoForm = useForm<InfoValues>({
     resolver: zodResolver(infoSchema),
-    defaultValues: { firstName: "", lastName: "", phone: "", club: "", gender: "Erkek" },
+    defaultValues: {
+      firstName: "",
+      lastName: "",
+      tcKimlik: "",
+      birthDate: "",
+      phone: "",
+      club: "",
+      gender: "Erkek",
+    },
   });
 
   useEffect(() => {
@@ -176,18 +209,38 @@ export default function ProfileCompletionPage() {
     const errs: Record<string, string> = {};
 
     if (selected?.capacity === 2 && hasRoommate) {
-      if (!roommate.firstName.trim()) errs["roommate.firstName"] = "Ad zorunludur";
-      if (!roommate.lastName.trim()) errs["roommate.lastName"] = "Soyad zorunludur";
+      if (!roommate.firstName?.trim()) errs["roommate.firstName"] = "Ad zorunludur";
+      if (!roommate.lastName?.trim()) errs["roommate.lastName"] = "Soyad zorunludur";
+      if (!isValidTcKimlik(roommate.tcKimlik)) {
+        errs["roommate.tcKimlik"] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
+      }
+      if (!roommate.birthDate) errs["roommate.birthDate"] = "Doğum tarihi zorunludur";
+      if (!isValidEmail(roommate.email)) {
+        errs["roommate.email"] = "Geçerli bir e-posta adresi girin";
+      }
+      if (!roommate.phone?.trim()) errs["roommate.phone"] = "Telefon numarası zorunludur";
     }
 
     if (selected?.capacity === 3) {
-      if (!adult2.firstName.trim()) errs["adult2.firstName"] = "2. Yetişkin adı zorunludur";
-      if (!adult2.lastName.trim()) errs["adult2.lastName"] = "2. Yetişkin soyadı zorunludur";
+      if (!adult2.firstName?.trim()) errs["adult2.firstName"] = "2. Yetişkin adı zorunludur";
+      if (!adult2.lastName?.trim()) errs["adult2.lastName"] = "2. Yetişkin soyadı zorunludur";
+      if (!isValidTcKimlik(adult2.tcKimlik)) {
+        errs["adult2.tcKimlik"] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
+      }
+      if (!adult2.birthDate) errs["adult2.birthDate"] = "Doğum tarihi zorunludur";
+      if (!isValidEmail(adult2.email)) {
+        errs["adult2.email"] = "Geçerli bir e-posta adresi girin";
+      }
+      if (!adult2.phone?.trim()) errs["adult2.phone"] = "Telefon numarası zorunludur";
 
-      for (let i = 0; i < childCount; i++) {
+      const effectiveCount = Math.max(1, childCount);
+      for (let i = 0; i < effectiveCount; i++) {
         const c = childrenList[i];
-        if (!c?.firstName?.trim()) errs[`children.${i}.firstName`] = "Çocuk adı zorunludur";
-        if (!c?.lastName?.trim()) errs[`children.${i}.lastName`] = "Çocuk soyadı zorunludur";
+        if (!c?.firstName?.trim()) errs[`children.${i}.firstName`] = `${i + 1}. çocuk adı zorunludur`;
+        if (!c?.lastName?.trim()) errs[`children.${i}.lastName`] = `${i + 1}. çocuk soyadı zorunludur`;
+        if (!isValidTcKimlik(c?.tcKimlik)) {
+          errs[`children.${i}.tcKimlik`] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
+        }
         if (!c?.birthDate) errs[`children.${i}.birthDate`] = "Doğum tarihi zorunludur";
       }
     }
@@ -217,6 +270,8 @@ export default function ProfileCompletionPage() {
         body: JSON.stringify({
           firstName: info.firstName,
           lastName: info.lastName,
+          tcKimlik: info.tcKimlik,
+          birthDate: info.birthDate,
           phone: country.dial.replace("+", "") + info.phone,
           club: info.club,
           gorev,
@@ -225,7 +280,7 @@ export default function ProfileCompletionPage() {
           hasRoommate,
           roommate: hasRoommate ? roommate : null,
           adult2: selected?.capacity === 3 ? adult2 : null,
-          children: selected?.capacity === 3 ? childrenList.slice(0, childCount) : [],
+          children: selected?.capacity === 3 ? childrenList.slice(0, Math.max(1, childCount)) : [],
         }),
       });
       const result = await res.json();
@@ -367,6 +422,49 @@ export default function ProfileCompletionPage() {
                 {infoForm.formState.errors.lastName && (
                   <p className="field-error mt-2">
                     {infoForm.formState.errors.lastName.message}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label htmlFor="tcKimlik" className="field-label">
+                  T.C. Kimlik Numarası <span className="text-destructive">*</span>
+                </label>
+                <input
+                  id="tcKimlik"
+                  type="text"
+                  maxLength={11}
+                  placeholder="11 haneli T.C. Kimlik No"
+                  {...infoForm.register("tcKimlik")}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, "");
+                    infoForm.setValue("tcKimlik", cleaned, { shouldValidate: true });
+                  }}
+                  aria-invalid={infoForm.formState.errors.tcKimlik ? true : undefined}
+                  className="field-input"
+                />
+                {infoForm.formState.errors.tcKimlik && (
+                  <p className="field-error mt-2">
+                    {infoForm.formState.errors.tcKimlik.message}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="birthDate" className="field-label">
+                  Doğum Tarihi <span className="text-destructive">*</span>
+                </label>
+                <input
+                  id="birthDate"
+                  type="date"
+                  {...infoForm.register("birthDate")}
+                  aria-invalid={infoForm.formState.errors.birthDate ? true : undefined}
+                  className="field-input"
+                />
+                {infoForm.formState.errors.birthDate && (
+                  <p className="field-error mt-2">
+                    {infoForm.formState.errors.birthDate.message}
                   </p>
                 )}
               </div>

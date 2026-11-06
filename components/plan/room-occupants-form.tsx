@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { User, Users, Baby, Info, CheckCircle2 } from "lucide-react";
+import { useEffect, useMemo } from "react";
+import { User, Users, Baby, Info, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import {
   calculateChildAge,
   calculateChildPrice,
@@ -13,15 +13,19 @@ import {
 export interface AdultGuest {
   firstName: string;
   lastName: string;
+  tcKimlik: string;
+  birthDate: string;
+  email: string;
   phone: string;
   gender: "Erkek" | "Kadın";
   club?: string;
-  email?: string;
+  gorev?: string;
 }
 
 export interface ChildGuest {
   firstName: string;
   lastName: string;
+  tcKimlik: string;
   birthDate: string;
   gender: "Erkek" | "Kadın";
 }
@@ -57,7 +61,20 @@ export function RoomOccupantsForm({
   onChildrenListChange,
   errors = {},
 }: RoomOccupantsFormProps) {
+  // Aile odalarında zorunlu olarak minimum 1 çocuk olmasını garanti et
+  useEffect(() => {
+    if (capacity === 3 && childCount < 1) {
+      onChildCountChange(1);
+      if (childrenList.length === 0) {
+        onChildrenListChange([
+          { firstName: "", lastName: "", tcKimlik: "", birthDate: "", gender: "Erkek" },
+        ]);
+      }
+    }
+  }, [capacity, childCount, childrenList.length, onChildCountChange, onChildrenListChange]);
+
   // Canlı fiyat hesaplama
+  const effectiveChildCount = capacity === 3 ? Math.max(1, childCount) : 0;
   const calculation: RoomCalculationResult = useMemo(() => {
     if (adultPrice == null) {
       return {
@@ -71,9 +88,9 @@ export function RoomOccupantsForm({
       adultPrice,
       capacity,
       hasRoommate,
-      children: childrenList.slice(0, childCount),
+      children: capacity === 3 ? childrenList.slice(0, effectiveChildCount) : [],
     });
-  }, [adultPrice, capacity, hasRoommate, childrenList, childCount]);
+  }, [adultPrice, capacity, hasRoommate, childrenList, effectiveChildCount]);
 
   // 1 Kişilik veya konaklamasız paketlerde misafir alanı gösterilmez
   if (capacity <= 1) {
@@ -104,11 +121,11 @@ export function RoomOccupantsForm({
               onChange={(e) => onHasRoommateChange(e.target.checked)}
               className="h-4 w-4 rounded border-ink text-ink accent-ink"
             />
-            <span className="t-label text-sm">Oda Arkadaşım Var (2 Kişilik Kayıt)</span>
+            <span className="t-label text-sm font-medium">Oda Arkadaşım Var (2 Kişilik Kayıt)</span>
           </label>
 
           {hasRoommate ? (
-            <div className="space-y-4 pt-2 border-t border-rule">
+            <div className="space-y-4 pt-3 border-t border-rule">
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-ink" />
                 <h4 className="t-label text-sm font-semibold">2. Kişi (Oda Arkadaşı) Bilgileri</h4>
@@ -152,7 +169,63 @@ export function RoomOccupantsForm({
                 </div>
 
                 <div>
-                  <label className="field-label">Telefon</label>
+                  <label className="field-label">
+                    T.C. Kimlik Numarası <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={11}
+                    value={roommate.tcKimlik || ""}
+                    onChange={(e) =>
+                      onRoommateChange({ ...roommate, tcKimlik: e.target.value.replace(/\D/g, "") })
+                    }
+                    placeholder="11 haneli T.C. Kimlik No"
+                    className="field-input"
+                  />
+                  {errors["roommate.tcKimlik"] && (
+                    <p className="field-error mt-1">{errors["roommate.tcKimlik"]}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="field-label">
+                    Doğum Tarihi <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={roommate.birthDate || ""}
+                    onChange={(e) =>
+                      onRoommateChange({ ...roommate, birthDate: e.target.value })
+                    }
+                    className="field-input"
+                  />
+                  {errors["roommate.birthDate"] && (
+                    <p className="field-error mt-1">{errors["roommate.birthDate"]}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="field-label">
+                    E-posta <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={roommate.email || ""}
+                    onChange={(e) =>
+                      onRoommateChange({ ...roommate, email: e.target.value })
+                    }
+                    placeholder="ornek@eposta.com"
+                    className="field-input"
+                  />
+                  {errors["roommate.email"] && (
+                    <p className="field-error mt-1">{errors["roommate.email"]}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="field-label">
+                    Telefon <span className="text-destructive">*</span>
+                  </label>
                   <input
                     type="tel"
                     value={roommate.phone}
@@ -162,6 +235,9 @@ export function RoomOccupantsForm({
                     placeholder="5XXXXXXXXX"
                     className="field-input"
                   />
+                  {errors["roommate.phone"] && (
+                    <p className="field-error mt-1">{errors["roommate.phone"]}</p>
+                  )}
                 </div>
 
                 <div>
@@ -181,6 +257,32 @@ export function RoomOccupantsForm({
                     <option value="Erkek">Erkek</option>
                     <option value="Kadın">Kadın</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="field-label">Kulüp Adı (Opsiyonel)</label>
+                  <input
+                    type="text"
+                    value={roommate.club || ""}
+                    onChange={(e) =>
+                      onRoommateChange({ ...roommate, club: e.target.value })
+                    }
+                    placeholder="Varsa Rotary kulübü"
+                    className="field-input"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="field-label">Görev (Opsiyonel)</label>
+                  <input
+                    type="text"
+                    value={roommate.gorev || ""}
+                    onChange={(e) =>
+                      onRoommateChange({ ...roommate, gorev: e.target.value })
+                    }
+                    placeholder="Varsa kulüp / bölge görevi"
+                    className="field-input"
+                  />
                 </div>
               </div>
             </div>
@@ -206,8 +308,8 @@ export function RoomOccupantsForm({
                 Aile Odası Konaklama Bilgileri
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Aile odalarında <strong>2 Yetişkin zorunludur</strong>. Opsiyonel olarak 1 veya 2
-                çocuk eklenebilir.
+                Aile odalarında zorunlu olarak <strong>2 Yetişkin + 1 Çocuk</strong> yapısı bulunmaktadır.
+                İstenirse &apos;1 Çocuk Daha Ekle&apos; seçeneğiyle çocuk sayısı 2&apos;ye çıkarılabilir.
               </p>
             </div>
           </div>
@@ -255,7 +357,61 @@ export function RoomOccupantsForm({
               </div>
 
               <div>
-                <label className="field-label">Telefon</label>
+                <label className="field-label">
+                  T.C. Kimlik Numarası <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="text"
+                  maxLength={11}
+                  value={adult2.tcKimlik || ""}
+                  onChange={(e) =>
+                    onAdult2Change({ ...adult2, tcKimlik: e.target.value.replace(/\D/g, "") })
+                  }
+                  placeholder="11 haneli T.C. Kimlik No"
+                  className="field-input"
+                />
+                {errors["adult2.tcKimlik"] && (
+                  <p className="field-error mt-1">{errors["adult2.tcKimlik"]}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="field-label">
+                  Doğum Tarihi <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={adult2.birthDate || ""}
+                  onChange={(e) =>
+                    onAdult2Change({ ...adult2, birthDate: e.target.value })
+                  }
+                  className="field-input"
+                />
+                {errors["adult2.birthDate"] && (
+                  <p className="field-error mt-1">{errors["adult2.birthDate"]}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="field-label">
+                  E-posta <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={adult2.email || ""}
+                  onChange={(e) => onAdult2Change({ ...adult2, email: e.target.value })}
+                  placeholder="2. yetiskin e-postası"
+                  className="field-input"
+                />
+                {errors["adult2.email"] && (
+                  <p className="field-error mt-1">{errors["adult2.email"]}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="field-label">
+                  Telefon <span className="text-destructive">*</span>
+                </label>
                 <input
                   type="tel"
                   value={adult2.phone}
@@ -263,6 +419,9 @@ export function RoomOccupantsForm({
                   placeholder="5XXXXXXXXX"
                   className="field-input"
                 />
+                {errors["adult2.phone"] && (
+                  <p className="field-error mt-1">{errors["adult2.phone"]}</p>
+                )}
               </div>
 
               <div>
@@ -280,164 +439,238 @@ export function RoomOccupantsForm({
                   <option value="Kadın">Kadın</option>
                 </select>
               </div>
+
+              <div>
+                <label className="field-label">Kulüp Adı (Opsiyonel)</label>
+                <input
+                  type="text"
+                  value={adult2.club || ""}
+                  onChange={(e) => onAdult2Change({ ...adult2, club: e.target.value })}
+                  placeholder="Varsa Rotary kulübü"
+                  className="field-input"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="field-label">Görev (Opsiyonel)</label>
+                <input
+                  type="text"
+                  value={adult2.gorev || ""}
+                  onChange={(e) => onAdult2Change({ ...adult2, gorev: e.target.value })}
+                  placeholder="Varsa kulüp / bölge görevi"
+                  className="field-input"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Çocuk Seçimi ve Bilgileri */}
+          {/* Çocuk Seçimi ve Bilgileri (Zorunlu 1 Çocuk + Opsiyonel 2. Çocuk) */}
           <div className="space-y-4 pt-3 border-t border-rule">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <Baby className="w-4 h-4 text-ink" />
-                <h4 className="t-label text-sm font-semibold">Çocuk Misafirler (Opsiyonel)</h4>
+                <h4 className="t-label text-sm font-semibold">Çocuk Misafir Bilgileri</h4>
+                <span className="text-xs text-muted-foreground">(1. Çocuk Zorunlu)</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Çocuk Sayısı:</span>
-                <div className="flex gap-1">
-                  {[0, 1, 2].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => {
-                        onChildCountChange(num);
-                        const updated = [...childrenList];
-                        while (updated.length < num) {
-                          updated.push({
-                            firstName: "",
-                            lastName: "",
-                            birthDate: "",
-                            gender: "Erkek",
-                          });
-                        }
-                        onChildrenListChange(updated);
-                      }}
-                      className={`px-3 py-1 text-xs font-medium border transition-colors ${
-                        childCount === num
-                          ? "bg-ink text-paper border-ink"
-                          : "bg-paper text-ink border-rule hover:border-ink"
-                      }`}
-                    >
-                      {num === 0 ? "Yok" : `${num} Çocuk`}
-                    </button>
-                  ))}
-                </div>
+                {effectiveChildCount < 2 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChildCountChange(2);
+                      const updated = [...childrenList];
+                      while (updated.length < 2) {
+                        updated.push({
+                          firstName: "",
+                          lastName: "",
+                          tcKimlik: "",
+                          birthDate: "",
+                          gender: "Erkek",
+                        });
+                      }
+                      onChildrenListChange(updated);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-ink bg-ink text-paper hover:bg-ink/90 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    1 Çocuk Daha Ekle (Toplam 2 Çocuk)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChildCountChange(1);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-destructive/40 text-destructive bg-destructive/5 hover:bg-destructive hover:text-white transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    2. Çocuğu Kaldır
+                  </button>
+                )}
               </div>
             </div>
 
-            {childCount > 0 && (
-              <div className="space-y-4">
-                {Array.from({ length: childCount }).map((_, index) => {
-                  const child = childrenList[index] || {
-                    firstName: "",
-                    lastName: "",
-                    birthDate: "",
-                    gender: "Erkek",
-                  };
-                  const age = child.birthDate ? calculateChildAge(child.birthDate) : null;
-                  const childPriceVal =
-                    adultPrice != null && age != null
-                      ? calculateChildPrice(adultPrice, age)
-                      : null;
+            <div className="space-y-4">
+              {Array.from({ length: effectiveChildCount }).map((_, index) => {
+                const child = childrenList[index] || {
+                  firstName: "",
+                  lastName: "",
+                  tcKimlik: "",
+                  birthDate: "",
+                  gender: "Erkek",
+                };
+                const age = child.birthDate ? calculateChildAge(child.birthDate) : null;
+                const childPriceVal =
+                  adultPrice != null && age != null
+                    ? calculateChildPrice(adultPrice, age)
+                    : null;
 
-                  return (
-                    <div
-                      key={index}
-                      className="p-4 border border-dashed border-ink/30 bg-ink/5 space-y-3"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold t-sheet text-ink">
-                          {index + 1}. Çocuk Bilgileri
-                        </span>
-                        {age != null && child.birthDate && (
-                          <span
-                            className={`text-xs px-2 py-0.5 font-medium border ${
-                              age <= 6
-                                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-300"
-                                : age <= 12
-                                ? "bg-sky-500/15 border-sky-500/40 text-sky-800 dark:text-sky-300"
-                                : "bg-neutral-500/15 border-neutral-500/40 text-neutral-800 dark:text-neutral-300"
-                            }`}
-                          >
-                            {age} Yaşında —{" "}
-                            {age <= 6
-                              ? "Ücretsiz (0 €)"
+                return (
+                  <div
+                    key={index}
+                    className="p-4 border border-dashed border-ink/30 bg-ink/5 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold t-sheet text-ink">
+                        {index + 1}. Çocuk {index === 0 ? "(Zorunlu)" : "(2. Çocuk)"}
+                      </span>
+                      {age != null && child.birthDate && (
+                        <span
+                          className={`text-xs px-2 py-0.5 font-medium border ${
+                            age <= 6
+                              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-800 dark:text-emerald-300"
                               : age <= 12
-                              ? `%50 İndirimli (${formatEuro(childPriceVal)})`
-                              : `Tam Ücret (${formatEuro(childPriceVal)})`}
-                          </span>
+                              ? "bg-sky-500/15 border-sky-500/40 text-sky-800 dark:text-sky-300"
+                              : "bg-neutral-500/15 border-neutral-500/40 text-neutral-800 dark:text-neutral-300"
+                          }`}
+                        >
+                          {age} Yaşında —{" "}
+                          {age <= 6
+                            ? "Ücretsiz (0 €)"
+                            : age <= 12
+                            ? `%50 İndirimli (${formatEuro(childPriceVal)})`
+                            : `Tam Ücret (${formatEuro(childPriceVal)})`}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="field-label text-xs">
+                          Ad <span className="text-destructive">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={child.firstName}
+                          onChange={(e) => {
+                            const updated = [...childrenList];
+                            updated[index] = { ...child, firstName: e.target.value };
+                            onChildrenListChange(updated);
+                          }}
+                          placeholder="Çocuğun adı"
+                          className="field-input text-sm"
+                        />
+                        {errors[`children.${index}.firstName`] && (
+                          <p className="field-error mt-1 text-xs">
+                            {errors[`children.${index}.firstName`]}
+                          </p>
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                          <label className="field-label text-xs">
-                            Ad <span className="text-destructive">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={child.firstName}
-                            onChange={(e) => {
-                              const updated = [...childrenList];
-                              updated[index] = { ...child, firstName: e.target.value };
-                              onChildrenListChange(updated);
-                            }}
-                            placeholder="Çocuğun adı"
-                            className="field-input text-sm"
-                          />
-                          {errors[`children.${index}.firstName`] && (
-                            <p className="field-error mt-1 text-xs">
-                              {errors[`children.${index}.firstName`]}
-                            </p>
-                          )}
-                        </div>
+                      <div>
+                        <label className="field-label text-xs">
+                          Soyad <span className="text-destructive">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={child.lastName}
+                          onChange={(e) => {
+                            const updated = [...childrenList];
+                            updated[index] = { ...child, lastName: e.target.value };
+                            onChildrenListChange(updated);
+                          }}
+                          placeholder="Çocuğun soyadı"
+                          className="field-input text-sm"
+                        />
+                        {errors[`children.${index}.lastName`] && (
+                          <p className="field-error mt-1 text-xs">
+                            {errors[`children.${index}.lastName`]}
+                          </p>
+                        )}
+                      </div>
 
-                        <div>
-                          <label className="field-label text-xs">
-                            Soyad <span className="text-destructive">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={child.lastName}
-                            onChange={(e) => {
-                              const updated = [...childrenList];
-                              updated[index] = { ...child, lastName: e.target.value };
-                              onChildrenListChange(updated);
-                            }}
-                            placeholder="Çocuğun soyadı"
-                            className="field-input text-sm"
-                          />
-                          {errors[`children.${index}.lastName`] && (
-                            <p className="field-error mt-1 text-xs">
-                              {errors[`children.${index}.lastName`]}
-                            </p>
-                          )}
-                        </div>
+                      <div>
+                        <label className="field-label text-xs">
+                          T.C. Kimlik No <span className="text-destructive">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={11}
+                          value={child.tcKimlik || ""}
+                          onChange={(e) => {
+                            const updated = [...childrenList];
+                            updated[index] = {
+                              ...child,
+                              tcKimlik: e.target.value.replace(/\D/g, ""),
+                            };
+                            onChildrenListChange(updated);
+                          }}
+                          placeholder="11 haneli T.C. No"
+                          className="field-input text-sm"
+                        />
+                        {errors[`children.${index}.tcKimlik`] && (
+                          <p className="field-error mt-1 text-xs">
+                            {errors[`children.${index}.tcKimlik`]}
+                          </p>
+                        )}
+                      </div>
 
-                        <div>
-                          <label className="field-label text-xs">
-                            Doğum Tarihi <span className="text-destructive">*</span>
-                          </label>
-                          <input
-                            type="date"
-                            value={child.birthDate}
-                            onChange={(e) => {
-                              const updated = [...childrenList];
-                              updated[index] = { ...child, birthDate: e.target.value };
-                              onChildrenListChange(updated);
-                            }}
-                            className="field-input text-sm"
-                          />
-                          {errors[`children.${index}.birthDate`] && (
-                            <p className="field-error mt-1 text-xs">
-                              {errors[`children.${index}.birthDate`]}
-                            </p>
-                          )}
-                        </div>
+                      <div>
+                        <label className="field-label text-xs">
+                          Doğum Tarihi <span className="text-destructive">*</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={child.birthDate}
+                          onChange={(e) => {
+                            const updated = [...childrenList];
+                            updated[index] = { ...child, birthDate: e.target.value };
+                            onChildrenListChange(updated);
+                          }}
+                          className="field-input text-sm"
+                        />
+                        {errors[`children.${index}.birthDate`] && (
+                          <p className="field-error mt-1 text-xs">
+                            {errors[`children.${index}.birthDate`]}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="field-label text-xs">
+                          Cinsiyet <span className="text-destructive">*</span>
+                        </label>
+                        <select
+                          value={child.gender}
+                          onChange={(e) => {
+                            const updated = [...childrenList];
+                            updated[index] = {
+                              ...child,
+                              gender: e.target.value as "Erkek" | "Kadın",
+                            };
+                            onChildrenListChange(updated);
+                          }}
+                          className="field-input text-sm"
+                        >
+                          <option value="Erkek">Erkek</option>
+                          <option value="Kadın">Kadın</option>
+                        </select>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

@@ -29,7 +29,7 @@ export async function GET() {
   // Fetch all users with package names
   const { data: users, error } = await admin
     .from("profiles")
-    .select("first_name, last_name, email, phone, club, gorev, gender, status, pricing_type, packages!package_id(name)");
+    .select("*, packages!package_id(name)");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -45,7 +45,7 @@ export async function GET() {
   });
 
   // Build CSV
-  const headers = ["Ad", "Soyad", "E-posta", "Telefon", "Kulüp", "Görev", "Cinsiyet", "Paket", "Kayıt Dönemi", "Durum"];
+  const headers = ["Ad", "Soyad", "TC Kimlik No", "Doğum Tarihi", "E-posta", "Telefon", "Kulüp", "Görev", "Cinsiyet", "Paket", "Kayıt Dönemi", "Durum"];
 
   const escapeField = (val: string) => {
     let clean = val;
@@ -67,9 +67,13 @@ export async function GET() {
 
   const rows = sorted.map((u) => {
     const pkg = u.packages as unknown as { name: string } | null;
+    const tc = (u as Record<string, unknown>).tc_kimlik as string | undefined;
+    const birth = (u as Record<string, unknown>).birth_date as string | undefined;
     return [
       u.first_name ?? "",
       u.last_name ?? "",
+      tc ? `'${tc}` : "",
+      birth ?? "",
       u.email ?? "",
       u.phone ? `+${u.phone}` : "",
       u.club ?? "",
