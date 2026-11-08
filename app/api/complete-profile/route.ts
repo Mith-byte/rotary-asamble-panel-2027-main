@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { DUTY_IDS, getDuty } from "@/lib/duties";
 import { isClubForDutyGroup } from "@/lib/clubs";
-import { calculateReservationPrice, calculateChildAge } from "@/lib/pricing";
+import { calculateReservationPrice, calculateChildAge, isFamilyPackage } from "@/lib/pricing";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     packageId,
     hasRoommate = false,
     roommate = null,
+    roommate2 = null,
     adult2 = null,
     children = [],
   } = body;
@@ -84,36 +85,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Paket bilgisi alınamadı" }, { status: 500 });
   }
 
+  const isFamily = isFamilyPackage(pkg);
   const capacity = pkg.capacity ?? 1;
   const adultPrice = (pkg[`${pricingType}_price` as const] as number) ?? 0;
 
   // 1. ODA TİPİNE GÖRE DOĞRULAMA (Validation)
-  // 2 Kişilik Oda: Oda arkadaşı var seçildiyse ad, soyad, tc, doğum tarihi, email, telefon zorunlu
-  if (capacity === 2 && hasRoommate) {
-    if (
-      !roommate?.firstName?.trim() ||
-      !roommate?.lastName?.trim() ||
-      !roommate?.tcKimlik?.trim() ||
-      !roommate?.birthDate ||
-      !roommate?.email?.trim() ||
-      !roommate?.phone?.trim()
-    ) {
-      return NextResponse.json(
-        { error: "2. kişi (oda arkadaşı) için Ad, Soyad, TC Kimlik No, Doğum Tarihi, E-posta ve Telefon zorunludur." },
-        { status: 400 }
-      );
-    }
-
-    if (!tcRegex.test(String(roommate.tcKimlik).trim())) {
-      return NextResponse.json(
-        { error: "Oda arkadaşı için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
-        { status: 400 }
-      );
-    }
-  }
-
-  // 3 Kişilik Oda (Aile Odası): Zorunlu 2 Yetişkin + en az 1 Çocuk
-  if (capacity === 3) {
+  if (isFamily) {
+    // Aile Odası: 2. Yetişkin zorunlu, en az 1 çocuk zorunlu
     if (
       !adult2?.firstName?.trim() ||
       !adult2?.lastName?.trim() ||
@@ -137,7 +115,7 @@ export async function POST(request: Request) {
 
     if (!Array.isArray(children) || children.length < 1) {
       return NextResponse.json(
-        { error: "Aile odası için en az 1 çocuk bilgisi zorunludur (2 Yetişkin + 1 Çocuk yapısı)." },
+        { error: "Aile odası için en az 1 çocuk bilgisi zorunludur (2 Yetişkin + En az 1 Çocuk yapısı)." },
         { status: 400 }
       );
     }
@@ -157,14 +135,83 @@ export async function POST(request: Request) {
         );
       }
     }
+  } else if (capacity === 2 && hasRoommate) {
+    // 2 Kişilik Oda: Oda arkadaşı var seçildiyse ad, soyad, tc, doğum tarihi, email, telefon zorunlu
+    if (
+      !roommate?.firstName?.trim() ||
+      !roommate?.lastName?.trim() ||
+      !roommate?.tcKimlik?.trim() ||
+      !roommate?.birthDate ||
+      !roommate?.email?.trim() ||
+      !roommate?.phone?.trim()
+    ) {
+      return NextResponse.json(
+        { error: "2. kişi (oda arkadaşı) için Ad, Soyad, TC Kimlik No, Doğum Tarihi, E-posta ve Telefon zorunludur." },
+        { status: 400 }
+      );
+    }
+
+    if (!tcRegex.test(String(roommate.tcKimlik).trim())) {
+      return NextResponse.json(
+        { error: "Oda arkadaşı için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
+        { status: 400 }
+      );
+    }
+  } else if (capacity === 3 && hasRoommate) {
+    // 3 Kişilik Oda: Oda arkadaşı var (Toplu Ödeme) seçildiyse 2. ve 3. Kişi bilgileri zorunlu
+    const thirdGuest = roommate2;
+
+    if (
+      !roommate?.firstName?.trim() ||
+      !roommate?.lastName?.trim() ||
+      !roommate?.tcKimlik?.trim() ||
+      !roommate?.birthDate ||
+      !roommate?.email?.trim() ||
+      !roommate?.phone?.trim()
+    ) {
+      return NextResponse.json(
+        { error: "2. kişi (1. Oda Arkadaşı) için Ad, Soyad, TC Kimlik No, Doğum Tarihi, E-posta ve Telefon zorunludur." },
+        { status: 400 }
+      );
+    }
+
+    if (!tcRegex.test(String(roommate.tcKimlik).trim())) {
+      return NextResponse.json(
+        { error: "2. kişi için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !thirdGuest?.firstName?.trim() ||
+      !thirdGuest?.lastName?.trim() ||
+      !thirdGuest?.tcKimlik?.trim() ||
+      !thirdGuest?.birthDate ||
+      !thirdGuest?.email?.trim() ||
+      !thirdGuest?.phone?.trim()
+    ) {
+      return NextResponse.json(
+        { error: "3. kişi (2. Oda Arkadaşı) için Ad, Soyad, TC Kimlik No, Doğum Tarihi, E-posta ve Telefon zorunludur." },
+        { status: 400 }
+      );
+    }
+
+    if (!tcRegex.test(String(thirdGuest.tcKimlik).trim())) {
+      return NextResponse.json(
+        { error: "3. kişi için geçerli bir 11 haneli T.C. Kimlik Numarası giriniz." },
+        { status: 400 }
+      );
+    }
   }
 
   // 2. FİYAT VE ODA HESAPLAMA (Server-side Güvenli Hesaplama)
   const calculation = calculateReservationPrice({
     adultPrice,
     capacity,
-    hasRoommate: !!hasRoommate,
-    children: capacity === 3 && Array.isArray(children) ? children : [],
+    packageId: pkg.id,
+    isFamily,
+    hasRoommate: isFamily ? true : !!hasRoommate,
+    children: isFamily && Array.isArray(children) ? children : [],
   });
 
   const totalAmount = calculation.totalAmount;
@@ -173,7 +220,7 @@ export async function POST(request: Request) {
   // 3. ODA OLUŞTURMA / GÜNCELLEME
   let roomId: string | null = null;
 
-  if (capacity > 1) {
+  if (isFamily || capacity > 1) {
     // Kullanıcının mevcut odası var mı kontrol et
     const { data: currentProfile } = await admin
       .from("profiles")
@@ -181,15 +228,18 @@ export async function POST(request: Request) {
       .eq("id", user.id)
       .single();
 
+    const roomType = isFamily ? "family" : capacity === 3 ? "triple" : "double";
+    const roomCapacity = isFamily ? Math.max(3, 2 + children.length) : capacity;
+
     if (currentProfile?.room_id) {
       roomId = currentProfile.room_id;
       // Mevcut odayı güncelle
       await admin
         .from("rooms")
         .update({
-          capacity: capacity === 3 ? Math.max(3, 2 + children.length) : capacity,
+          capacity: roomCapacity,
           remaining_capacity: remainingCapacity,
-          room_type: capacity === 3 ? "family" : "double",
+          room_type: roomType,
         })
         .eq("id", roomId);
 
@@ -200,9 +250,9 @@ export async function POST(request: Request) {
       const { data: newRoom, error: roomError } = await admin
         .from("rooms")
         .insert({
-          capacity: capacity === 3 ? Math.max(3, 2 + children.length) : capacity,
+          capacity: roomCapacity,
           remaining_capacity: remainingCapacity,
-          room_type: capacity === 3 ? "family" : "double",
+          room_type: roomType,
           created_by: user.id,
         })
         .select("id")
@@ -233,50 +283,32 @@ export async function POST(request: Request) {
         price: number;
       }> = [];
 
-      // 2 Kişilik odada oda arkadaşı
-      if (capacity === 2 && hasRoommate && roommate) {
-        guestsToInsert.push({
-          room_id: roomId,
-          registered_by: user.id,
-          guest_type: "adult",
-          first_name: roommate.firstName.trim(),
-          last_name: roommate.lastName.trim(),
-          tc_kimlik: roommate.tcKimlik ? String(roommate.tcKimlik).trim() : null,
-          birth_date: roommate.birthDate || null,
-          email: roommate.email ? roommate.email.trim() : null,
-          phone: roommate.phone ? roommate.phone.trim() : null,
-          gender: roommate.gender || "Erkek",
-          club: roommate.club?.trim() || club,
-          age: null,
-          price: adultPrice,
-        });
-      }
+      // AİLE ODASI: 2. Yetişkin + Çocuklar
+      if (isFamily) {
+        if (adult2) {
+          guestsToInsert.push({
+            room_id: roomId,
+            registered_by: user.id,
+            guest_type: "adult",
+            first_name: adult2.firstName.trim(),
+            last_name: adult2.lastName.trim(),
+            tc_kimlik: adult2.tcKimlik ? String(adult2.tcKimlik).trim() : null,
+            birth_date: adult2.birthDate || null,
+            email: adult2.email ? adult2.email.trim() : null,
+            phone: adult2.phone ? adult2.phone.trim() : null,
+            gender: adult2.gender || "Kadın",
+            club: adult2.club?.trim() || club,
+            age: null,
+            price: adultPrice,
+          });
+        }
 
-      // Aile odasında 2. Yetişkin
-      if (capacity === 3 && adult2) {
-        guestsToInsert.push({
-          room_id: roomId,
-          registered_by: user.id,
-          guest_type: "adult",
-          first_name: adult2.firstName.trim(),
-          last_name: adult2.lastName.trim(),
-          tc_kimlik: adult2.tcKimlik ? String(adult2.tcKimlik).trim() : null,
-          birth_date: adult2.birthDate || null,
-          email: adult2.email ? adult2.email.trim() : null,
-          phone: adult2.phone ? adult2.phone.trim() : null,
-          gender: adult2.gender || "Kadın",
-          club: adult2.club?.trim() || club,
-          age: null,
-          price: adultPrice,
-        });
-
-        // Aile odasında çocuklar
         if (Array.isArray(children)) {
           for (const child of children) {
+            const childAge = child.birthDate ? calculateChildAge(child.birthDate) : null;
             const childItem = calculation.items.find(
               (it) => it.label.includes(child.firstName) || it.label.includes("Çocuk")
             );
-            const childAge = child.birthDate ? calculateChildAge(child.birthDate) : null;
 
             guestsToInsert.push({
               room_id: roomId,
@@ -292,6 +324,64 @@ export async function POST(request: Request) {
               club: null,
               age: childAge,
               price: childItem?.total ?? 0,
+            });
+          }
+        }
+      } else {
+        // 2 Kişilik odada oda arkadaşı
+        if (capacity === 2 && hasRoommate && roommate) {
+          guestsToInsert.push({
+            room_id: roomId,
+            registered_by: user.id,
+            guest_type: "adult",
+            first_name: roommate.firstName.trim(),
+            last_name: roommate.lastName.trim(),
+            tc_kimlik: roommate.tcKimlik ? String(roommate.tcKimlik).trim() : null,
+            birth_date: roommate.birthDate || null,
+            email: roommate.email ? roommate.email.trim() : null,
+            phone: roommate.phone ? roommate.phone.trim() : null,
+            gender: roommate.gender || "Erkek",
+            club: roommate.club?.trim() || club,
+            age: null,
+            price: adultPrice,
+          });
+        }
+
+        // 3 Kişilik odada 2. ve 3. Kişi (Oda Arkadaşları)
+        if (capacity === 3 && hasRoommate && roommate) {
+          const thirdGuest = roommate2;
+
+          guestsToInsert.push({
+            room_id: roomId,
+            registered_by: user.id,
+            guest_type: "adult",
+            first_name: roommate.firstName.trim(),
+            last_name: roommate.lastName.trim(),
+            tc_kimlik: roommate.tcKimlik ? String(roommate.tcKimlik).trim() : null,
+            birth_date: roommate.birthDate || null,
+            email: roommate.email ? roommate.email.trim() : null,
+            phone: roommate.phone ? roommate.phone.trim() : null,
+            gender: roommate.gender || "Erkek",
+            club: roommate.club?.trim() || club,
+            age: null,
+            price: adultPrice,
+          });
+
+          if (thirdGuest) {
+            guestsToInsert.push({
+              room_id: roomId,
+              registered_by: user.id,
+              guest_type: "adult",
+              first_name: thirdGuest.firstName.trim(),
+              last_name: thirdGuest.lastName.trim(),
+              tc_kimlik: thirdGuest.tcKimlik ? String(thirdGuest.tcKimlik).trim() : null,
+              birth_date: thirdGuest.birthDate || null,
+              email: thirdGuest.email ? thirdGuest.email.trim() : null,
+              phone: thirdGuest.phone ? thirdGuest.phone.trim() : null,
+              gender: thirdGuest.gender || "Kadın",
+              club: thirdGuest.club?.trim() || club,
+              age: null,
+              price: adultPrice,
             });
           }
         }
@@ -331,8 +421,14 @@ export async function POST(request: Request) {
     package_id: packageId,
     pricing_type: pricingType,
     total_amount: totalAmount,
-    has_roommate: !!hasRoommate,
-    guest_count: capacity === 2 && hasRoommate ? 1 : capacity === 3 ? 1 + children.length : 0,
+    has_roommate: isFamily ? true : !!hasRoommate,
+    guest_count: isFamily
+      ? 1 + children.length
+      : capacity === 2 && hasRoommate
+      ? 1
+      : capacity === 3 && hasRoommate
+      ? 2
+      : 0,
   };
 
   if (roomId) {

@@ -8,6 +8,8 @@
  * unhatched — and says so in words.
  */
 export interface PackageAxes {
+  id?: string;
+  name?: string;
   nights: number;
   capacity: number | null;
   ceremony: boolean;
@@ -16,6 +18,10 @@ export interface PackageAxes {
 
 export function PackageChips({ pkg }: { pkg: PackageAxes }) {
   const stay = pkg.nights > 0;
+  const isFamily =
+    (pkg.id != null && (pkg.id.startsWith("aile") || pkg.id.includes("aile"))) ||
+    (pkg.name != null && pkg.name.includes("Aile"));
+
   return (
     <ul className="flex flex-wrap gap-1.5">
       <li>
@@ -23,7 +29,7 @@ export function PackageChips({ pkg }: { pkg: PackageAxes }) {
           <span className="swatch" aria-hidden="true" />
           {stay
             ? `${pkg.nights} gece${
-                pkg.capacity === 3
+                isFamily
                   ? " · Aile Odası"
                   : pkg.capacity && pkg.capacity > 1
                   ? ` · ${pkg.capacity} kişi`

@@ -75,9 +75,7 @@ export default async function OdemelerPage({
     }
   }
 
-  const packageName = pkg?.capacity === 3
-    ? pkg.name?.replace(/^3 Kişi/i, "Aile Odası")
-    : pkg?.name;
+  const packageName = pkg?.name;
 
   // POS'tan dönüş durumu (success/failed query param)
   const returnStatus = params.status;

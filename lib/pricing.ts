@@ -70,74 +70,67 @@ export interface RoomCalculationResult {
 }
 
 /**
+ * Verilen paket nesnesi veya ID'sinin Aile Odası olup olmadığını kontrol eder.
+ */
+export function isFamilyPackage(
+  pkgOrId?: { id?: string; name?: string } | string | null
+): boolean {
+  if (!pkgOrId) return false;
+  if (typeof pkgOrId === "string") {
+    return pkgOrId.startsWith("aile") || pkgOrId.toLowerCase().includes("aile");
+  }
+  return (
+    (pkgOrId.id != null && (pkgOrId.id.startsWith("aile") || pkgOrId.id.toLowerCase().includes("aile"))) ||
+    (pkgOrId.name != null && pkgOrId.name.toLowerCase().includes("aile"))
+  );
+}
+
+/**
  * Oda tipine ve misafir listesine göre toplam oda fiyatını hesaplar.
  *
  * Kurallar:
- * 1. Tek kişilik (1 Kişi) veya konaklamasız: 1x Yetişkin Fiyatı
- * 2. 2 Kişilik Odalar (Double):
- *    - hasRoommate = true ve 2. kişi varsa: 2x Yetişkin Fiyatı (Kalan kapasite: 0)
- *    - hasRoommate = false (tek kişi): 1x Yetişkin Fiyatı (Kalan kapasite: 1)
- * 3. Aile Odaları (3 Kişilik Odalar):
- *    - Zorunlu 2 Yetişkin: 2x Yetişkin Fiyatı
- *    - Opsiyonel 1 veya 2 Çocuk:
- *        - 0-6 yaş: 0 €
- *        - 6-12 yaş: %50 indirimli
- *        - 12+ yaş: tam ücret
+ * 1. Aile Odaları (Family Room):
+ *    - 2 Yetişkin (Zorunlu): 2x Yetişkin Fiyatı
+ *    - 1 Çocuk Zorunlu, 1 Çocuk Opsiyonel
+ *    - Çocuk Fiyatlandırması (1 Nisan 2027 referansıyla):
+ *        - 0-6 Yaş: Ücretsiz (0 €)
+ *        - 6-12 Yaş: %50 İndirimli (adultPrice * 0.5)
+ *        - 12+ Yaş: Tam Ücret (adultPrice)
+ *    - Bireysel ödeme seçeneği yoktur, tüm oda tek seferde ödenir.
+ * 2. 3 Kişilik Odalar (Triple):
+ *    - hasRoommate = true: 3x Yetişkin Fiyatı (Toplam Oda Tutarı, Kalan kapasite: 0)
+ *    - hasRoommate = false: 1x Yetişkin Fiyatı (Bireysel Kayıt, Kalan kapasite: 2)
+ * 3. 2 Kişilik Odalar (Double):
+ *    - hasRoommate = true: 2x Yetişkin Fiyatı (Toplam Oda Tutarı, Kalan kapasite: 0)
+ *    - hasRoommate = false: 1x Yetişkin Fiyatı (Bireysel Kayıt, Kalan kapasite: 1)
+ * 4. Tek kişilik (1 Kişi) veya konaklamasız: 1x Yetişkin Fiyatı
  */
 export function calculateReservationPrice({
   adultPrice,
   capacity,
+  packageId,
+  isFamily,
   hasRoommate,
   children = [],
 }: {
   adultPrice: number;
   capacity: number;
+  packageId?: string;
+  isFamily?: boolean;
   hasRoommate?: boolean;
   children?: Array<{ birthDate: string; firstName?: string; lastName?: string }>;
 }): RoomCalculationResult {
   const items: PriceBreakdownItem[] = [];
+  const isFamilyRoom = isFamily || isFamilyPackage(packageId);
 
-  // 1. 2 Kişilik Oda (Double)
-  if (capacity === 2) {
-    if (hasRoommate) {
-      items.push({
-        label: "2 Yetişkin (Oda Arkadaşı Dahil)",
-        count: 2,
-        unitPrice: adultPrice,
-        total: adultPrice * 2,
-        note: "Oda dolu",
-      });
-      return {
-        totalAmount: adultPrice * 2,
-        adultPrice,
-        items,
-        remainingCapacity: 0,
-      };
-    } else {
-      items.push({
-        label: "1 Yetişkin (Tek Kişilik Kayıt)",
-        count: 1,
-        unitPrice: adultPrice,
-        total: adultPrice,
-        note: "1 kişilik boş yer (Kalan kapasite: 1)",
-      });
-      return {
-        totalAmount: adultPrice,
-        adultPrice,
-        items,
-        remainingCapacity: 1,
-      };
-    }
-  }
-
-  // 2. Aile Odası (3 Kişilik Oda)
-  if (capacity === 3) {
-    // Zorunlu 2 Yetişkin
+  // 1. Aile Odası (Family Room)
+  if (isFamilyRoom) {
     items.push({
       label: "2 Yetişkin",
       count: 2,
       unitPrice: adultPrice,
       total: adultPrice * 2,
+      note: "Zorunlu 2 Yetişkin",
     });
     let total = adultPrice * 2;
 
@@ -161,14 +154,80 @@ export function calculateReservationPrice({
     });
 
     return {
-      totalAmount: total,
+      totalAmount: Math.round(total * 100) / 100,
       adultPrice,
       items,
-      remainingCapacity: Math.max(0, 3 - (2 + children.length)),
+      remainingCapacity: 0,
     };
   }
 
-  // 3. Tek kişilik oda veya konaklamasız
+  // 2. 2 Kişilik Oda (Double)
+  if (capacity === 2) {
+    if (hasRoommate) {
+      items.push({
+        label: "2 Yetişkin (Oda Arkadaşı Dahil)",
+        count: 2,
+        unitPrice: adultPrice,
+        total: adultPrice * 2,
+        note: "Tüm oda tek seferde ödeniyor",
+      });
+      return {
+        totalAmount: adultPrice * 2,
+        adultPrice,
+        items,
+        remainingCapacity: 0,
+      };
+    } else {
+      items.push({
+        label: "1 Yetişkin (Bireysel Kayıt)",
+        count: 1,
+        unitPrice: adultPrice,
+        total: adultPrice,
+        note: "1 kişilik boş yatak (Kalan kapasite: 1)",
+      });
+      return {
+        totalAmount: adultPrice,
+        adultPrice,
+        items,
+        remainingCapacity: 1,
+      };
+    }
+  }
+
+  // 3. 3 Kişilik Oda (Triple)
+  if (capacity === 3) {
+    if (hasRoommate) {
+      items.push({
+        label: "3 Yetişkin (2 Oda Arkadaşı Dahil)",
+        count: 3,
+        unitPrice: adultPrice,
+        total: adultPrice * 3,
+        note: "3 kişilik toplam oda ücreti tek seferde ödeniyor",
+      });
+      return {
+        totalAmount: adultPrice * 3,
+        adultPrice,
+        items,
+        remainingCapacity: 0,
+      };
+    } else {
+      items.push({
+        label: "1 Yetişkin (Bireysel Kayıt)",
+        count: 1,
+        unitPrice: adultPrice,
+        total: adultPrice,
+        note: "2 kişilik boş yatak (Kalan kapasite: 2)",
+      });
+      return {
+        totalAmount: adultPrice,
+        adultPrice,
+        items,
+        remainingCapacity: 2,
+      };
+    }
+  }
+
+  // 4. Tek kişilik oda veya konaklamasız
   items.push({
     label: "Kayıt Sahibi",
     count: 1,

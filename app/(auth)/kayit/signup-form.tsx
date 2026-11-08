@@ -18,7 +18,7 @@ import {
   type AdultGuest,
   type ChildGuest,
 } from "@/components/plan/room-occupants-form";
-import { calculateReservationPrice, formatEuro } from "@/lib/pricing";
+import { calculateReservationPrice, formatEuro, isFamilyPackage } from "@/lib/pricing";
 
 import { Room } from "@/components/plan/room";
 import { DutyPicker } from "@/components/plan/duty-picker";
@@ -144,7 +144,7 @@ export function SignupForm() {
   const [packageId, setPackageId] = useState<string | null>(null);
   const [packageFromLink, setPackageFromLink] = useState(false);
 
-  // Oda arkadaşı ve aile odası misafir state'leri
+  // Oda arkadaşı state'leri (2 ve 3 kişilik odalar)
   const [hasRoommate, setHasRoommate] = useState(false);
   const [roommate, setRoommate] = useState<AdultGuest>({
     firstName: "",
@@ -157,6 +157,19 @@ export function SignupForm() {
     club: "",
     gorev: "",
   });
+  const [roommate2, setRoommate2] = useState<AdultGuest>({
+    firstName: "",
+    lastName: "",
+    tcKimlik: "",
+    birthDate: "",
+    email: "",
+    phone: "",
+    gender: "Kadın",
+    club: "",
+    gorev: "",
+  });
+
+  // Aile odası misafir state'leri (2 Yetişkin + min 1, max 2 Çocuk)
   const [adult2, setAdult2] = useState<AdultGuest>({
     firstName: "",
     lastName: "",
@@ -172,6 +185,7 @@ export function SignupForm() {
   const [childrenList, setChildrenList] = useState<ChildGuest[]>([
     { firstName: "", lastName: "", tcKimlik: "", birthDate: "", gender: "Erkek" },
   ]);
+
   const [occupantErrors, setOccupantErrors] = useState<Record<string, string>>({});
 
   const [country, setCountry] = useState<Country>(COUNTRIES[0]);
@@ -256,16 +270,19 @@ export function SignupForm() {
 
   const selected = packages.find((p) => p.id === packageId) ?? null;
   const selectedPrice = selected ? packagePrice(selected, pricing) : null;
+  const isFamily = isFamilyPackage(selected);
 
   const calculatedReservation = useMemo(() => {
     if (!selected || selectedPrice == null) return null;
     return calculateReservationPrice({
       adultPrice: selectedPrice,
       capacity: selected.capacity ?? 1,
+      packageId: selected.id,
+      isFamily,
       hasRoommate,
-      children: selected.capacity === 3 ? childrenList.slice(0, childCount) : [],
+      children: isFamily ? childrenList.slice(0, Math.max(1, childCount)) : [],
     });
-  }, [selected, selectedPrice, hasRoommate, childrenList, childCount]);
+  }, [selected, selectedPrice, isFamily, hasRoommate, childrenList, childCount]);
 
   const displayTotal = calculatedReservation?.totalAmount ?? selectedPrice;
 
@@ -306,20 +323,8 @@ export function SignupForm() {
     setOccupantErrors({});
     const errs: Record<string, string> = {};
 
-    if (selected?.capacity === 2 && hasRoommate) {
-      if (!roommate.firstName?.trim()) errs["roommate.firstName"] = "Ad zorunludur";
-      if (!roommate.lastName?.trim()) errs["roommate.lastName"] = "Soyad zorunludur";
-      if (!isValidTcKimlik(roommate.tcKimlik)) {
-        errs["roommate.tcKimlik"] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
-      }
-      if (!roommate.birthDate) errs["roommate.birthDate"] = "Doğum tarihi zorunludur";
-      if (!isValidEmail(roommate.email)) {
-        errs["roommate.email"] = "Geçerli bir e-posta adresi girin";
-      }
-      if (!roommate.phone?.trim()) errs["roommate.phone"] = "Telefon numarası zorunludur";
-    }
-
-    if (selected?.capacity === 3) {
+    if (isFamily) {
+      // 2. Yetişkin
       if (!adult2.firstName?.trim()) errs["adult2.firstName"] = "2. Yetişkin adı zorunludur";
       if (!adult2.lastName?.trim()) errs["adult2.lastName"] = "2. Yetişkin soyadı zorunludur";
       if (!isValidTcKimlik(adult2.tcKimlik)) {
@@ -331,6 +336,7 @@ export function SignupForm() {
       }
       if (!adult2.phone?.trim()) errs["adult2.phone"] = "Telefon numarası zorunludur";
 
+      // Çocuklar (İsim, Soyisim, T.C. Kimlik No, Doğum Tarihi)
       const effectiveCount = Math.max(1, childCount);
       for (let i = 0; i < effectiveCount; i++) {
         const c = childrenList[i];
@@ -341,6 +347,41 @@ export function SignupForm() {
         }
         if (!c?.birthDate) errs[`children.${i}.birthDate`] = "Doğum tarihi zorunludur";
       }
+    } else if (selected?.capacity === 2 && hasRoommate) {
+      if (!roommate.firstName?.trim()) errs["roommate.firstName"] = "Ad zorunludur";
+      if (!roommate.lastName?.trim()) errs["roommate.lastName"] = "Soyad zorunludur";
+      if (!isValidTcKimlik(roommate.tcKimlik)) {
+        errs["roommate.tcKimlik"] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
+      }
+      if (!roommate.birthDate) errs["roommate.birthDate"] = "Doğum tarihi zorunludur";
+      if (!isValidEmail(roommate.email)) {
+        errs["roommate.email"] = "Geçerli bir e-posta adresi girin";
+      }
+      if (!roommate.phone?.trim()) errs["roommate.phone"] = "Telefon numarası zorunludur";
+    } else if (selected?.capacity === 3 && hasRoommate) {
+      // 2. Kişi
+      if (!roommate.firstName?.trim()) errs["roommate.firstName"] = "2. Kişi adı zorunludur";
+      if (!roommate.lastName?.trim()) errs["roommate.lastName"] = "2. Kişi soyadı zorunludur";
+      if (!isValidTcKimlik(roommate.tcKimlik)) {
+        errs["roommate.tcKimlik"] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
+      }
+      if (!roommate.birthDate) errs["roommate.birthDate"] = "Doğum tarihi zorunludur";
+      if (!isValidEmail(roommate.email)) {
+        errs["roommate.email"] = "Geçerli bir e-posta adresi girin";
+      }
+      if (!roommate.phone?.trim()) errs["roommate.phone"] = "Telefon numarası zorunludur";
+
+      // 3. Kişi
+      if (!roommate2.firstName?.trim()) errs["roommate2.firstName"] = "3. Kişi adı zorunludur";
+      if (!roommate2.lastName?.trim()) errs["roommate2.lastName"] = "3. Kişi soyadı zorunludur";
+      if (!isValidTcKimlik(roommate2.tcKimlik)) {
+        errs["roommate2.tcKimlik"] = "Geçerli bir 11 haneli T.C. Kimlik No girin";
+      }
+      if (!roommate2.birthDate) errs["roommate2.birthDate"] = "Doğum tarihi zorunludur";
+      if (!isValidEmail(roommate2.email)) {
+        errs["roommate2.email"] = "Geçerli bir e-posta adresi girin";
+      }
+      if (!roommate2.phone?.trim()) errs["roommate2.phone"] = "Telefon numarası zorunludur";
     }
 
     if (Object.keys(errs).length > 0) {
@@ -375,10 +416,11 @@ export function SignupForm() {
           gorev,
           gender: info.gender,
           packageId,
-          hasRoommate,
-          roommate: hasRoommate ? roommate : null,
-          adult2: selected?.capacity === 3 ? adult2 : null,
-          children: selected?.capacity === 3 ? childrenList.slice(0, Math.max(1, childCount)) : [],
+          hasRoommate: isFamily ? true : hasRoommate,
+          roommate: (!isFamily && hasRoommate) ? roommate : null,
+          roommate2: (!isFamily && selected?.capacity === 3 && hasRoommate) ? roommate2 : null,
+          adult2: isFamily ? adult2 : null,
+          children: isFamily ? childrenList.slice(0, Math.max(1, childCount)) : [],
         }),
       });
       const result = await res.json();
@@ -537,11 +579,7 @@ export function SignupForm() {
             <h2 className="t-sheet mb-3 text-[0.8125rem]">Seçiminiz</h2>
             <Register>
               <Row label="Görev">{dutyLabelWithTerm(gorev) ?? "—"}</Row>
-              <Row label="Paket">
-                {selected?.capacity === 3
-                  ? selected.name.replace(/^3 Kişi/i, "Aile Odası")
-                  : selected?.name ?? "—"}
-              </Row>
+              <Row label="Paket">{selected?.name ?? "—"}</Row>
               <Row label="Ücret">
                 {displayTotal != null ? formatEuro(displayTotal) : <PriceNotIssued />}
               </Row>
@@ -665,14 +703,19 @@ export function SignupForm() {
           </Room>
 
           {/* Oda arkadaşı ve Aile Odası Misafir Bilgileri */}
-          {selected && selected.capacity && selected.capacity > 1 && (
+          {selected && (isFamily || (selected.capacity && selected.capacity > 1)) && (
             <RoomOccupantsForm
-              capacity={selected.capacity}
+              capacity={selected.capacity ?? 1}
+              packageId={selected.id}
+              packageName={selected.name}
+              isFamily={isFamily}
               adultPrice={selectedPrice}
               hasRoommate={hasRoommate}
               onHasRoommateChange={setHasRoommate}
               roommate={roommate}
               onRoommateChange={setRoommate}
+              roommate2={roommate2}
+              onRoommate2Change={setRoommate2}
               adult2={adult2}
               onAdult2Change={setAdult2}
               childCount={childCount}

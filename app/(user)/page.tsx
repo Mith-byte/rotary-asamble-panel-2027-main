@@ -181,11 +181,7 @@ export default async function HomePage() {
               )}
             </div>
             <Register>
-              <Row label="Paket">
-                {pkg?.capacity === 3
-                  ? pkg.name?.replace(/^3 Kişi/i, "Aile Odası")
-                  : pkg?.name ?? "—"}
-              </Row>
+              <Row label="Paket">{pkg?.name ?? "—"}</Row>
               <Row label="Toplam Ücret">
                 {profile?.total_amount != null
                   ? tl.format(Number(profile.total_amount))

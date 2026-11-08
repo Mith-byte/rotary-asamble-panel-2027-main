@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse, type NextRequest } from "next/server";
-import { calculateReservationPrice, formatEuro } from "@/lib/pricing";
+import { calculateReservationPrice, formatEuro, isFamilyPackage } from "@/lib/pricing";
 import { getEuroExchangeRate, convertEurToTry, formatTry } from "@/lib/exchange-rate";
 import { checkRateLimit } from "@/lib/rate-limit";
 import crypto from "crypto";
@@ -162,6 +162,8 @@ async function handlePaymentInit(request: NextRequest) {
     const calc = calculateReservationPrice({
       adultPrice,
       capacity: pkg.capacity ?? 1,
+      packageId: pkg.id,
+      isFamily: isFamilyPackage(pkg),
       hasRoommate: !!profile.has_roommate,
       children: childrenList,
     });
