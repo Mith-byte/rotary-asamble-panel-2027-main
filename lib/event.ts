@@ -12,9 +12,7 @@ export const event = {
   dateLabel: "1-4 Nisan 2027",
   venue: "Beks Premium Resort & Spa",
   venueCity: "Kuşadası, Aydın",
-  /** Everyone sits in the same hall — there are no tracks and no parallel salons. */
-  hall: "Magnesia",
-  host: "İzmir Dokuz Eylül Rotary Kulübü",
+  host: "Bostanlı Rotary Kulübü",
   siteUrl: "https://asamble2440.com",
 } as const;
 
