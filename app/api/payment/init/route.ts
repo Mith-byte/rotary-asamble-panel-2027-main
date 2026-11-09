@@ -209,9 +209,14 @@ async function handlePaymentInit(request: NextRequest) {
   const islemtipi = "Auth";
   const lang = "tr";
 
+  const refreshtime = (
+    process.env.ISBANK_REFRESHTIME ||
+    "5"
+  ).replace(/^["']|["']$/g, "").trim();
+
   const callbackUrl = (
     process.env.ISBANK_CALLBACK_URL ||
-    "https://panel.asamble2440.com/api/payment/callback"
+    `${siteUrl}/api/payment/callback`
   ).replace(/^["']|["']$/g, "").trim();
 
   // Nestpay Türk Lirası ISO sayısal kodu: 949
@@ -242,6 +247,7 @@ async function handlePaymentInit(request: NextRequest) {
     lang: lang,
     rnd: rnd,
     taksit: "",
+    refreshtime: refreshtime,
   };
 
   // ver3 Kuralı: Anahtarları küçük/büyük harf duyarsız (case-insensitive) alfabetik sıraya diz
