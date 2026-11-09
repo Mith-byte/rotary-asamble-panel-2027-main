@@ -125,7 +125,7 @@ export default async function HomePage() {
         }
         lead={
           registered
-            ? `${event.name}, ${event.dateLabel} tarihlerinde ${event.venue}'da toplanıyor. Oturumlar ${event.hall} salonunda.`
+            ? `${event.name}, ${event.dateLabel} tarihlerinde ${event.venue}'da toplanıyor.`
             : undefined
         }
       >

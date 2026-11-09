@@ -26,7 +26,7 @@ export default function TakvimPage() {
         tag="Takvim"
         figure="4 GÜN"
         title="Program"
-        lead={`Oturumların tamamı ${event.hall} salonunda yapılır. Paralel oturum yoktur — herkes aynı programı izler.`}
+        lead="Paralel oturum yoktur — herkes aynı programı izler."
       />
 
       <Room className="p-4 md:p-6">
@@ -35,7 +35,6 @@ export default function TakvimPage() {
           <Row label="Tarih">{event.dateLabel}</Row>
           <Row label="Tesis">{event.venue}</Row>
           <Row label="Şehir">{event.venueCity}</Row>
-          <Row label="Salon">{event.hall}</Row>
         </Register>
       </Room>
 
