@@ -183,7 +183,7 @@ export function calculateReservationPrice({
         count: 1,
         unitPrice: adultPrice,
         total: adultPrice,
-        note: "1 kişilik boş yatak (Kalan kapasite: 1)",
+        note: "Bireysel ödeme (Oda arkadaşı eşleştirmeli)",
       });
       return {
         totalAmount: adultPrice,
@@ -216,7 +216,7 @@ export function calculateReservationPrice({
         count: 1,
         unitPrice: adultPrice,
         total: adultPrice,
-        note: "2 kişilik boş yatak (Kalan kapasite: 2)",
+        note: "Bireysel ödeme (Oda arkadaşı eşleştirmeli)",
       });
       return {
         totalAmount: adultPrice,

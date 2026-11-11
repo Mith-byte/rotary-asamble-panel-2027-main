@@ -17,7 +17,9 @@ import {
   RoomOccupantsForm,
   type AdultGuest,
   type ChildGuest,
+  type RoomRegistrationType,
 } from "@/components/plan/room-occupants-form";
+import { DonorTypeCheckboxes } from "@/components/plan/donor-type-checkboxes";
 import { calculateReservationPrice, formatEuro, isFamilyPackage } from "@/lib/pricing";
 
 import { Room } from "@/components/plan/room";
@@ -144,7 +146,13 @@ export function SignupForm() {
   const [packageId, setPackageId] = useState<string | null>(null);
   const [packageFromLink, setPackageFromLink] = useState(false);
 
-  // Oda arkadaşı state'leri (2 ve 3 kişilik odalar)
+  // Oda kayıt tipi ve oda arkadaşı tercihleri
+  const [registrationType, setRegistrationType] = useState<RoomRegistrationType>("individual");
+  const [roommatePreference1, setRoommatePreference1] = useState("");
+  const [roommatePreference2, setRoommatePreference2] = useState("");
+  const [donorTypes, setDonorTypes] = useState<string[]>([]);
+
+  // Toplu oda kaydı için oda arkadaşı state'leri (2 ve 3 kişilik odalar)
   const [hasRoommate, setHasRoommate] = useState(false);
   const [roommate, setRoommate] = useState<AdultGuest>({
     firstName: "",
@@ -272,6 +280,8 @@ export function SignupForm() {
   const selectedPrice = selected ? packagePrice(selected, pricing) : null;
   const isFamily = isFamilyPackage(selected);
 
+  const isGroupRoomBooking = !isFamily && registrationType === "room";
+
   const calculatedReservation = useMemo(() => {
     if (!selected || selectedPrice == null) return null;
     return calculateReservationPrice({
@@ -279,10 +289,10 @@ export function SignupForm() {
       capacity: selected.capacity ?? 1,
       packageId: selected.id,
       isFamily,
-      hasRoommate,
+      hasRoommate: isFamily ? true : isGroupRoomBooking,
       children: isFamily ? childrenList.slice(0, Math.max(1, childCount)) : [],
     });
-  }, [selected, selectedPrice, isFamily, hasRoommate, childrenList, childCount]);
+  }, [selected, selectedPrice, isFamily, isGroupRoomBooking, childrenList, childCount]);
 
   const displayTotal = calculatedReservation?.totalAmount ?? selectedPrice;
 
@@ -347,7 +357,21 @@ export function SignupForm() {
         }
         if (!c?.birthDate) errs[`children.${i}.birthDate`] = "Doğum tarihi zorunludur";
       }
-    } else if (selected?.capacity === 2 && hasRoommate) {
+    } else if (selected?.capacity === 2 && registrationType === "individual") {
+      // 2 Kişilik Oda: Bireysel Kayıt -> 1 adet zorunlu oda arkadaşı adı soyadı
+      if (!roommatePreference1.trim()) {
+        errs["roommatePreference1"] = "Oda arkadaşınızın adı soyadı zorunludur";
+      }
+    } else if (selected?.capacity === 3 && registrationType === "individual") {
+      // 3 Kişilik Oda: Bireysel Kayıt -> 2 adet zorunlu oda arkadaşı adı soyadı
+      if (!roommatePreference1.trim()) {
+        errs["roommatePreference1"] = "1. oda arkadaşınızın adı soyadı zorunludur";
+      }
+      if (!roommatePreference2.trim()) {
+        errs["roommatePreference2"] = "2. oda arkadaşınızın adı soyadı zorunludur";
+      }
+    } else if (selected?.capacity === 2 && registrationType === "room") {
+      // 2 Kişilik Oda: Toplu Oda Kaydı
       if (!roommate.firstName?.trim()) errs["roommate.firstName"] = "Ad zorunludur";
       if (!roommate.lastName?.trim()) errs["roommate.lastName"] = "Soyad zorunludur";
       if (!isValidTcKimlik(roommate.tcKimlik)) {
@@ -358,7 +382,8 @@ export function SignupForm() {
         errs["roommate.email"] = "Geçerli bir e-posta adresi girin";
       }
       if (!roommate.phone?.trim()) errs["roommate.phone"] = "Telefon numarası zorunludur";
-    } else if (selected?.capacity === 3 && hasRoommate) {
+    } else if (selected?.capacity === 3 && registrationType === "room") {
+      // 3 Kişilik Oda: Toplu Oda Kaydı (2. ve 3. Kişi)
       // 2. Kişi
       if (!roommate.firstName?.trim()) errs["roommate.firstName"] = "2. Kişi adı zorunludur";
       if (!roommate.lastName?.trim()) errs["roommate.lastName"] = "2. Kişi soyadı zorunludur";
@@ -415,10 +440,14 @@ export function SignupForm() {
           club: info.club,
           gorev,
           gender: info.gender,
+          donorTypes,
           packageId,
-          hasRoommate: isFamily ? true : hasRoommate,
-          roommate: (!isFamily && hasRoommate) ? roommate : null,
-          roommate2: (!isFamily && selected?.capacity === 3 && hasRoommate) ? roommate2 : null,
+          registrationType: isFamily ? "room" : registrationType,
+          roommatePreference1: (!isFamily && registrationType === "individual") ? roommatePreference1.trim() : null,
+          roommatePreference2: (!isFamily && selected?.capacity === 3 && registrationType === "individual") ? roommatePreference2.trim() : null,
+          hasRoommate: isFamily ? true : registrationType === "room",
+          roommate: (!isFamily && registrationType === "room") ? roommate : null,
+          roommate2: (!isFamily && selected?.capacity === 3 && registrationType === "room") ? roommate2 : null,
           adult2: isFamily ? adult2 : null,
           children: isFamily ? childrenList.slice(0, Math.max(1, childCount)) : [],
         }),
@@ -700,6 +729,14 @@ export function SignupForm() {
                 ))}
               </select>
             </div>
+
+            <div className="pt-2 border-t border-rule">
+              <DonorTypeCheckboxes
+                selected={donorTypes}
+                onChange={setDonorTypes}
+                idPrefix="main_user"
+              />
+            </div>
           </Room>
 
           {/* Oda arkadaşı ve Aile Odası Misafir Bilgileri */}
@@ -710,8 +747,14 @@ export function SignupForm() {
               packageName={selected.name}
               isFamily={isFamily}
               adultPrice={selectedPrice}
-              hasRoommate={hasRoommate}
-              onHasRoommateChange={setHasRoommate}
+              registrationType={registrationType}
+              onRegistrationTypeChange={setRegistrationType}
+              roommatePreference1={roommatePreference1}
+              onRoommatePreference1Change={setRoommatePreference1}
+              roommatePreference2={roommatePreference2}
+              onRoommatePreference2Change={setRoommatePreference2}
+              hasRoommate={registrationType === "room"}
+              onHasRoommateChange={(val) => setRegistrationType(val ? "room" : "individual")}
               roommate={roommate}
               onRoommateChange={setRoommate}
               roommate2={roommate2}

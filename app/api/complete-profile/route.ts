@@ -27,8 +27,12 @@ export async function POST(request: Request) {
     club,
     gorev,
     gender,
+    donorTypes = [],
     packageId,
-    hasRoommate = false,
+    registrationType = "individual",
+    roommatePreference1 = null,
+    roommatePreference2 = null,
+    hasRoommate: clientHasRoommate = false,
     roommate = null,
     roommate2 = null,
     adult2 = null,
@@ -135,8 +139,24 @@ export async function POST(request: Request) {
         );
       }
     }
-  } else if (capacity === 2 && hasRoommate) {
-    // 2 Kişilik Oda: Oda arkadaşı var seçildiyse ad, soyad, tc, doğum tarihi, email, telefon zorunlu
+  } else if (capacity === 2 && registrationType === "individual") {
+    // 2 Kişilik Oda: Bireysel Kayıt -> 1 adet zorunlu oda arkadaşı tercihi (adı soyadı)
+    if (!roommatePreference1?.trim()) {
+      return NextResponse.json(
+        { error: "2 kişilik oda için oda arkadaşınızın adı soyadı zorunludur." },
+        { status: 400 }
+      );
+    }
+  } else if (capacity === 3 && registrationType === "individual") {
+    // 3 Kişilik Oda: Bireysel Kayıt -> 2 adet zorunlu oda arkadaşı tercihi
+    if (!roommatePreference1?.trim() || !roommatePreference2?.trim()) {
+      return NextResponse.json(
+        { error: "3 kişilik oda için 1. ve 2. oda arkadaşınızın adı soyadı zorunludur." },
+        { status: 400 }
+      );
+    }
+  } else if (capacity === 2 && (registrationType === "room" || clientHasRoommate)) {
+    // 2 Kişilik Oda: Toplu Oda Kaydı -> ad, soyad, tc, doğum tarihi, email, telefon zorunlu
     if (
       !roommate?.firstName?.trim() ||
       !roommate?.lastName?.trim() ||
@@ -157,8 +177,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-  } else if (capacity === 3 && hasRoommate) {
-    // 3 Kişilik Oda: Oda arkadaşı var (Toplu Ödeme) seçildiyse 2. ve 3. Kişi bilgileri zorunlu
+  } else if (capacity === 3 && (registrationType === "room" || clientHasRoommate)) {
+    // 3 Kişilik Oda: Toplu Oda Kaydı -> 2. ve 3. Kişi bilgileri zorunlu
     const thirdGuest = roommate2;
 
     if (
@@ -205,12 +225,14 @@ export async function POST(request: Request) {
   }
 
   // 2. FİYAT VE ODA HESAPLAMA (Server-side Güvenli Hesaplama)
+  const isGroupRoomBooking = !isFamily && (registrationType === "room" || !!clientHasRoommate);
+
   const calculation = calculateReservationPrice({
     adultPrice,
     capacity,
     packageId: pkg.id,
     isFamily,
-    hasRoommate: isFamily ? true : !!hasRoommate,
+    hasRoommate: isFamily ? true : isGroupRoomBooking,
     children: isFamily && Array.isArray(children) ? children : [],
   });
 
@@ -281,6 +303,7 @@ export async function POST(request: Request) {
         club: string | null;
         age: number | null;
         price: number;
+        donor_types?: string[];
       }> = [];
 
       // AİLE ODASI: 2. Yetişkin + Çocuklar
@@ -300,6 +323,7 @@ export async function POST(request: Request) {
             club: adult2.club?.trim() || club,
             age: null,
             price: adultPrice,
+            donor_types: Array.isArray(adult2.donorTypes) ? adult2.donorTypes : [],
           });
         }
 
@@ -327,9 +351,9 @@ export async function POST(request: Request) {
             });
           }
         }
-      } else {
+      } else if (isGroupRoomBooking) {
         // 2 Kişilik odada oda arkadaşı
-        if (capacity === 2 && hasRoommate && roommate) {
+        if (capacity === 2 && roommate) {
           guestsToInsert.push({
             room_id: roomId,
             registered_by: user.id,
@@ -344,11 +368,12 @@ export async function POST(request: Request) {
             club: roommate.club?.trim() || club,
             age: null,
             price: adultPrice,
+            donor_types: Array.isArray(roommate.donorTypes) ? roommate.donorTypes : [],
           });
         }
 
         // 3 Kişilik odada 2. ve 3. Kişi (Oda Arkadaşları)
-        if (capacity === 3 && hasRoommate && roommate) {
+        if (capacity === 3 && roommate) {
           const thirdGuest = roommate2;
 
           guestsToInsert.push({
@@ -365,6 +390,7 @@ export async function POST(request: Request) {
             club: roommate.club?.trim() || club,
             age: null,
             price: adultPrice,
+            donor_types: Array.isArray(roommate.donorTypes) ? roommate.donorTypes : [],
           });
 
           if (thirdGuest) {
@@ -382,6 +408,7 @@ export async function POST(request: Request) {
               club: thirdGuest.club?.trim() || club,
               age: null,
               price: adultPrice,
+              donor_types: Array.isArray(thirdGuest.donorTypes) ? thirdGuest.donorTypes : [],
             });
           }
         }
@@ -392,10 +419,10 @@ export async function POST(request: Request) {
           .from("room_guests")
           .insert(guestsToInsert);
 
-        if (guestError && guestError.message?.toLowerCase().includes("tc_kimlik")) {
-          console.warn("[complete-profile] Fallback: tc_kimlik column not found in room_guests. Retrying without tc_kimlik. Please run migration 00015.");
+        if (guestError && (guestError.message?.toLowerCase().includes("tc_kimlik") || guestError.message?.toLowerCase().includes("donor_types"))) {
+          console.warn("[complete-profile] Fallback: tc_kimlik or donor_types column not found in room_guests. Retrying without them. Please run migrations 00015 and 00018.");
           const fallbackGuests = guestsToInsert.map((g) => {
-            const { tc_kimlik: _, ...rest } = g;
+            const { tc_kimlik: _, donor_types: __, ...rest } = g;
             return rest;
           });
           const retryRes = await admin.from("room_guests").insert(fallbackGuests);
@@ -421,12 +448,16 @@ export async function POST(request: Request) {
     package_id: packageId,
     pricing_type: pricingType,
     total_amount: totalAmount,
-    has_roommate: isFamily ? true : !!hasRoommate,
+    has_roommate: isFamily ? true : isGroupRoomBooking,
+    room_registration_type: isFamily ? "room" : registrationType,
+    roommate_preference_1: (!isFamily && registrationType === "individual") ? (roommatePreference1?.trim() || null) : null,
+    roommate_preference_2: (!isFamily && capacity === 3 && registrationType === "individual") ? (roommatePreference2?.trim() || null) : null,
+    donor_types: Array.isArray(donorTypes) ? donorTypes : [],
     guest_count: isFamily
       ? 1 + children.length
-      : capacity === 2 && hasRoommate
+      : capacity === 2 && isGroupRoomBooking
       ? 1
-      : capacity === 3 && hasRoommate
+      : capacity === 3 && isGroupRoomBooking
       ? 2
       : 0,
   };
@@ -446,14 +477,21 @@ export async function POST(request: Request) {
   if (
     updateError &&
     (updateError.message?.toLowerCase().includes("tc_kimlik") ||
-      updateError.message?.toLowerCase().includes("birth_date"))
+      updateError.message?.toLowerCase().includes("birth_date") ||
+      updateError.message?.toLowerCase().includes("donor_types") ||
+      updateError.message?.toLowerCase().includes("room_registration_type") ||
+      updateError.message?.toLowerCase().includes("roommate_preference"))
   ) {
     console.warn(
-      "[complete-profile] Fallback: tc_kimlik or birth_date column not found in profiles. Retrying without them. Please run migration 00015."
+      "[complete-profile] Fallback: Missing columns in profiles. Retrying without new columns. Please run migration 00018."
     );
     const fallbackProfile = { ...profileUpdate };
     delete fallbackProfile.tc_kimlik;
     delete fallbackProfile.birth_date;
+    delete fallbackProfile.donor_types;
+    delete fallbackProfile.room_registration_type;
+    delete fallbackProfile.roommate_preference_1;
+    delete fallbackProfile.roommate_preference_2;
     const retryRes = await admin
       .from("profiles")
       .update(fallbackProfile)

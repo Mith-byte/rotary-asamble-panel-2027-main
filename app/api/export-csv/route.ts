@@ -45,7 +45,24 @@ export async function GET() {
   });
 
   // Build CSV
-  const headers = ["Ad", "Soyad", "TC Kimlik No", "Doğum Tarihi", "E-posta", "Telefon", "Kulüp", "Görev", "Cinsiyet", "Paket", "Kayıt Dönemi", "Durum"];
+  const headers = [
+    "Ad",
+    "Soyad",
+    "TC Kimlik No",
+    "Doğum Tarihi",
+    "E-posta",
+    "Telefon",
+    "Kulüp",
+    "Görev",
+    "Cinsiyet",
+    "Bağışçı Türü",
+    "Paket",
+    "Oda Kayıt Tipi",
+    "Oda Tercihi 1",
+    "Oda Tercihi 2",
+    "Kayıt Dönemi",
+    "Durum",
+  ];
 
   const escapeField = (val: string) => {
     let clean = val;
@@ -67,8 +84,15 @@ export async function GET() {
 
   const rows = sorted.map((u) => {
     const pkg = u.packages as unknown as { name: string } | null;
-    const tc = (u as Record<string, unknown>).tc_kimlik as string | undefined;
-    const birth = (u as Record<string, unknown>).birth_date as string | undefined;
+    const raw = u as Record<string, unknown>;
+    const tc = raw.tc_kimlik as string | undefined;
+    const birth = raw.birth_date as string | undefined;
+    const donorTypesArr = (raw.donor_types as string[] | undefined) ?? [];
+    const donorTypesStr = Array.isArray(donorTypesArr) ? donorTypesArr.join(", ") : "";
+    const regType = raw.room_registration_type === "room" ? "Oda Kaydı (Tüm Oda)" : "Bireysel Kayıt";
+    const pref1 = (raw.roommate_preference_1 as string | undefined) ?? "";
+    const pref2 = (raw.roommate_preference_2 as string | undefined) ?? "";
+
     return [
       u.first_name ?? "",
       u.last_name ?? "",
@@ -79,7 +103,11 @@ export async function GET() {
       u.club ?? "",
       dutyLabelWithTerm(u.gorev) ?? "",
       u.gender ?? "",
+      donorTypesStr,
       pkg?.name ?? "",
+      regType,
+      pref1,
+      pref2,
       pricingLabels[u.pricing_type as string] ?? (u.pricing_type ?? ""),
       u.status === "accepted" ? "Onaylı" : "Beklemede",
     ].map(escapeField).join(",");

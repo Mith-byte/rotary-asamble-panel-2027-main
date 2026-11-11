@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { User, Users, Baby, Info, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { User, Users, Baby, Info, CheckCircle2, Plus, Trash2, BedDouble } from "lucide-react";
 import {
   calculateChildAge,
   calculateReservationPrice,
@@ -9,26 +9,14 @@ import {
   isFamilyPackage,
   type RoomCalculationResult,
 } from "@/lib/pricing";
+import { DonorTypeCheckboxes } from "./donor-type-checkboxes";
+import {
+  type AdultGuest,
+  type ChildGuest,
+  type RoomRegistrationType,
+} from "@/types/registration";
 
-export interface AdultGuest {
-  firstName: string;
-  lastName: string;
-  tcKimlik: string;
-  birthDate: string;
-  email: string;
-  phone: string;
-  gender: "Erkek" | "Kadın";
-  club?: string;
-  gorev?: string;
-}
-
-export interface ChildGuest {
-  firstName: string;
-  lastName: string;
-  tcKimlik: string;
-  birthDate: string;
-  gender: "Erkek" | "Kadın";
-}
+export { type AdultGuest, type ChildGuest, type RoomRegistrationType };
 
 interface RoomOccupantsFormProps {
   capacity: number;
@@ -36,9 +24,18 @@ interface RoomOccupantsFormProps {
   packageName?: string | null;
   isFamily?: boolean;
   adultPrice: number | null;
-  hasRoommate: boolean;
-  onHasRoommateChange: (val: boolean) => void;
-  // 2 Kişilik ve 3 Kişilik Odalar için
+  // Kayıt Tipi (Bireysel vs. Oda Kaydı)
+  registrationType?: RoomRegistrationType;
+  onRegistrationTypeChange?: (val: RoomRegistrationType) => void;
+  // Bireysel Kayıtta İsim Tercihleri
+  roommatePreference1?: string;
+  onRoommatePreference1Change?: (val: string) => void;
+  roommatePreference2?: string;
+  onRoommatePreference2Change?: (val: string) => void;
+  // Geriye dönük uyumluluk için hasRoommate desteği
+  hasRoommate?: boolean;
+  onHasRoommateChange?: (val: boolean) => void;
+  // 2 Kişilik ve 3 Kişilik Odalar için Toplu Kayıt Misafirleri
   roommate: AdultGuest;
   onRoommateChange: (val: AdultGuest) => void;
   roommate2: AdultGuest;
@@ -59,7 +56,13 @@ export function RoomOccupantsForm({
   packageName,
   isFamily,
   adultPrice,
-  hasRoommate,
+  registrationType = "individual",
+  onRegistrationTypeChange,
+  roommatePreference1 = "",
+  onRoommatePreference1Change,
+  roommatePreference2 = "",
+  onRoommatePreference2Change,
+  hasRoommate: legacyHasRoommate,
   onHasRoommateChange,
   roommate,
   onRoommateChange,
@@ -77,6 +80,18 @@ export function RoomOccupantsForm({
     isFamily ||
     isFamilyPackage(packageId) ||
     (packageName != null && packageName.includes("Aile"));
+
+  // hasRoommate durumunu registrationType üzerinden türet
+  const isGroupRoomBooking = !isFamilyRoom && (registrationType === "room" || (!onRegistrationTypeChange && !!legacyHasRoommate));
+
+  const handleTypeChange = (type: RoomRegistrationType) => {
+    if (onRegistrationTypeChange) {
+      onRegistrationTypeChange(type);
+    }
+    if (onHasRoommateChange) {
+      onHasRoommateChange(type === "room");
+    }
+  };
 
   // Aile odasında zorunlu olarak minimum 1 çocuk olmasını garanti et
   useEffect(() => {
@@ -101,9 +116,9 @@ export function RoomOccupantsForm({
         items: [],
         remainingCapacity: isFamilyRoom
           ? 0
-          : capacity === 2 && !hasRoommate
+          : capacity === 2 && !isGroupRoomBooking
           ? 1
-          : capacity === 3 && !hasRoommate
+          : capacity === 3 && !isGroupRoomBooking
           ? 2
           : 0,
       };
@@ -113,10 +128,10 @@ export function RoomOccupantsForm({
       capacity,
       packageId: packageId ?? undefined,
       isFamily: isFamilyRoom,
-      hasRoommate,
+      hasRoommate: isGroupRoomBooking,
       children: isFamilyRoom ? childrenList.slice(0, effectiveChildCount) : [],
     });
-  }, [adultPrice, capacity, packageId, isFamilyRoom, hasRoommate, childrenList, effectiveChildCount]);
+  }, [adultPrice, capacity, packageId, isFamilyRoom, isGroupRoomBooking, childrenList, effectiveChildCount]);
 
   // 1 Kişilik veya konaklamasız paketlerde misafir alanı gösterilmez
   if (!isFamilyRoom && capacity <= 1) {
@@ -378,115 +393,169 @@ export function RoomOccupantsForm({
         </div>
       )}
 
-      {/* 2. 2 KİŞİLİK ODA (DOUBLE) */}
-      {!isFamilyRoom && capacity === 2 && (
-        <div className="border border-ink/20 p-5 bg-paper space-y-4">
+      {/* 2. 2 KİŞİLİK VE 3 KİŞİLİK ODALAR (Bireysel vs. Oda Kaydı) */}
+      {!isFamilyRoom && (capacity === 2 || capacity === 3) && (
+        <div className="border border-ink/20 p-5 bg-paper space-y-5">
           <div className="flex items-start gap-3">
-            <Users className="w-5 h-5 text-ink mt-0.5 shrink-0" />
+            <BedDouble className="w-5 h-5 text-ink mt-0.5 shrink-0" />
             <div className="flex-1">
               <h3 className="t-sheet text-sm font-semibold text-ink">
-                2 Kişilik Oda (Double) Planlaması
+                {capacity} Kişilik Oda Kayıt Modu
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Odayı bir arkadaşınızla paylaşabilir veya tek kişi olarak konaklayabilirsiniz.
+                Odayı bireysel olarak kaydedip oda arkadaşınızı isimle belirtebilir ya da tüm odayı tek seferde kapatabilirsiniz.
               </p>
             </div>
           </div>
 
-          <label className="flex items-center gap-3 p-3 border border-rule cursor-pointer hover:bg-ink/5 transition-colors">
-            <input
-              type="checkbox"
-              checked={hasRoommate}
-              onChange={(e) => onHasRoommateChange(e.target.checked)}
-              className="w-4 h-4 rounded border-rule text-ink focus:ring-ink"
-            />
-            <div className="text-sm">
-              <span className="font-medium text-ink">
-                Oda arkadaşım var / Tüm odayı ben ödeyeceğim
-              </span>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                İşaretlenirse oda arkadaşınızın bilgilerini girersiniz ve 2 kişilik toplam oda ücreti tek seferde tahsil edilir.
-              </p>
-            </div>
-          </label>
-
-          {!hasRoommate && (
-            <div className="flex items-start gap-2.5 p-3 bg-ink/5 border border-ink/10 text-xs text-muted-foreground">
-              <Info className="w-4 h-4 text-ink shrink-0 mt-0.5" />
-              <div>
-                <strong>Bireysel Ödeme Modu:</strong> Şu anda yalnızca kendi paket tutarınızı (1 kişi) ödeyeceksiniz. Kalan 1 yatak boş kalır veya daha sonra odaya katılımcı eklenebilir.
-              </div>
-            </div>
-          )}
-
-          {hasRoommate && (
-            <div className="space-y-4 pt-2">
-              <AdultGuestInputs
-                title="2. Kişi (Oda Arkadaşı) Bilgileri"
-                guestNumber={2}
-                guest={roommate}
-                onChange={onRoommateChange}
-                prefix="roommate"
-                errors={errors}
+          {/* 1. SEÇİM ALANI (Bireysel Kayıt vs. Oda Kaydı) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <label
+              className={`flex items-start gap-3 p-3.5 border cursor-pointer transition-all ${
+                !isGroupRoomBooking
+                  ? "border-ink bg-ink/5 ring-1 ring-ink"
+                  : "border-rule hover:border-ink/40 bg-paper"
+              }`}
+            >
+              <input
+                type="radio"
+                name="room_reg_type"
+                value="individual"
+                checked={!isGroupRoomBooking}
+                onChange={() => handleTypeChange("individual")}
+                className="mt-0.5 text-ink focus:ring-ink"
               />
-            </div>
-          )}
-        </div>
-      )}
+              <div className="text-sm">
+                <span className="font-semibold text-ink block">
+                  Bireysel Kayıt <span className="text-xs font-normal text-muted-foreground">(Varsayılan)</span>
+                </span>
+                <span className="text-xs text-muted-foreground block mt-1 leading-relaxed">
+                  Yalnızca kendi adınıza <strong>1 kişilik</strong> ücret ödersiniz. Tercih ettiğiniz oda arkadaşını(ları) isimle belirtebilirsiniz.
+                </span>
+              </div>
+            </label>
 
-      {/* 3. 3 KİŞİLİK ODA (TRIPLE) */}
-      {!isFamilyRoom && capacity === 3 && (
-        <div className="border border-ink/20 p-5 bg-paper space-y-4">
-          <div className="flex items-start gap-3">
-            <Users className="w-5 h-5 text-ink mt-0.5 shrink-0" />
-            <div className="flex-1">
-              <h3 className="t-sheet text-sm font-semibold text-ink">
-                3 Kişilik Oda Planlaması
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Varsayılan olarak sadece kendi paket tutarınızı ödersiniz veya oda arkadaşlarınızı ekleyerek tüm odayı tek seferde ödeyebilirsiniz.
-              </p>
-            </div>
+            <label
+              className={`flex items-start gap-3 p-3.5 border cursor-pointer transition-all ${
+                isGroupRoomBooking
+                  ? "border-ink bg-ink/5 ring-1 ring-ink"
+                  : "border-rule hover:border-ink/40 bg-paper"
+              }`}
+            >
+              <input
+                type="radio"
+                name="room_reg_type"
+                value="room"
+                checked={isGroupRoomBooking}
+                onChange={() => handleTypeChange("room")}
+                className="mt-0.5 text-ink focus:ring-ink"
+              />
+              <div className="text-sm">
+                <span className="font-semibold text-ink block">
+                  Oda Kaydı (Tüm Odayı Kapat)
+                </span>
+                <span className="text-xs text-muted-foreground block mt-1 leading-relaxed">
+                  Odadaki tüm misafirlerin bilgilerini girer ve tüm odanın <strong>({capacity} kişilik)</strong> toplam ücretini tek seferde ödersiniz.
+                </span>
+              </div>
+            </label>
           </div>
 
-          <label className="flex items-center gap-3 p-3 border border-rule cursor-pointer hover:bg-ink/5 transition-colors">
-            <input
-              type="checkbox"
-              checked={hasRoommate}
-              onChange={(e) => onHasRoommateChange(e.target.checked)}
-              className="w-4 h-4 rounded border-rule text-ink focus:ring-ink"
-            />
-            <div className="text-sm">
-              <span className="font-medium text-ink">
-                Oda arkadaşım var / Tüm odayı ben ödeyeceğim
-              </span>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                İşaretlendiğinde 2 adet oda arkadaşı (2. Kişi ve 3. Kişi) bilgi alanı açılır ve 3 kişilik toplam oda ücreti tek seferde tahsil edilir.
-              </p>
-            </div>
-          </label>
+          {/* 2. BİREYSEL KAYIT: ODA ARKADAŞI TERCİHİ ALANI */}
+          {!isGroupRoomBooking && (
+            <div className="space-y-4 pt-2">
+              <div className="p-3.5 bg-ink/5 border border-ink/10 text-xs text-muted-foreground flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-ink shrink-0 mt-0.5" />
+                <div>
+                  <strong>Bireysel Kayıt Modu:</strong> Şu anda yalnızca kendi paket tutarınızı (1 kişi) ödeyeceksiniz.
+                  Oda arkadaşı eşleştirmesi, belirttiğiniz isimler üzerinden organizasyon acentesi tarafından panelde gerçekleştirilecektir.
+                </div>
+              </div>
 
-          {!hasRoommate && (
-            <div className="flex items-start gap-2.5 p-3 bg-ink/5 border border-ink/10 text-xs text-muted-foreground">
-              <Info className="w-4 h-4 text-ink shrink-0 mt-0.5" />
-              <div>
-                <strong>Bireysel Ödeme Modu:</strong> Şu anda yalnızca kendi paket tutarınızı (1 kişi) ödeyeceksiniz. Kalan 2 yatak boş kalır veya daha sonra odaya katılımcı dahil edilebilir.
+              <div className="border border-rule p-4 bg-paper space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-rule">
+                  <User className="w-4 h-4 text-ink" />
+                  <h4 className="t-sheet text-xs font-semibold uppercase tracking-wider text-ink">
+                    Oda Arkadaşı Tercihi
+                  </h4>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {capacity === 2
+                    ? "2 kişilik odanızı paylaşmak istediğiniz kişinin adını ve soyadını yazınız."
+                    : "3 kişilik odanızı paylaşmak istediğiniz 2 arkadaşınızın adını ve soyadını yazınız."}
+                </p>
+
+                {capacity === 2 && (
+                  <div>
+                    <label className="field-label">
+                      Oda Arkadaşınızın Adı Soyadı <span className="text-destructive">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={roommatePreference1}
+                      onChange={(e) => onRoommatePreference1Change && onRoommatePreference1Change(e.target.value)}
+                      placeholder="Örn: Ahmet Yılmaz"
+                      className="field-input"
+                    />
+                    {errors["roommatePreference1"] && (
+                      <p className="field-error mt-1">{errors["roommatePreference1"]}</p>
+                    )}
+                  </div>
+                )}
+
+                {capacity === 3 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="field-label">
+                        1. Oda Arkadaşınızın Adı Soyadı <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={roommatePreference1}
+                        onChange={(e) => onRoommatePreference1Change && onRoommatePreference1Change(e.target.value)}
+                        placeholder="Örn: Ahmet Yılmaz"
+                        className="field-input"
+                      />
+                      {errors["roommatePreference1"] && (
+                        <p className="field-error mt-1">{errors["roommatePreference1"]}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="field-label">
+                        2. Oda Arkadaşınızın Adı Soyadı <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={roommatePreference2}
+                        onChange={(e) => onRoommatePreference2Change && onRoommatePreference2Change(e.target.value)}
+                        placeholder="Örn: Mehmet Demir"
+                        className="field-input"
+                      />
+                      {errors["roommatePreference2"] && (
+                        <p className="field-error mt-1">{errors["roommatePreference2"]}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {hasRoommate && (
+          {/* 3. ODA KAYDI (TOPLU ÖDEME): MİSAFİR GİRİŞ FORMLARI */}
+          {isGroupRoomBooking && (
             <div className="space-y-4 pt-2">
               <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 text-xs text-ink">
                 <Info className="w-4 h-4 text-blue-500 shrink-0" />
                 <span>
-                  <strong>Toplu Ödeme:</strong> Lütfen her iki oda arkadaşınızın bilgilerini eksiksiz doldurunuz. 3 kişinin toplam oda ücreti tek seferde tahsil edilecektir.
+                  <strong>Toplu Oda Kaydı:</strong> Lütfen odadaki tüm misafirlerin bilgilerini eksiksiz doldurunuz.
+                  Toplam {capacity} kişilik oda ücreti tek seferde tahsil edilecektir.
                 </span>
               </div>
 
-              {/* 2. Kişi */}
+              {/* 2. Kişi (2 ve 3 Kişilik Odalar için) */}
               <AdultGuestInputs
-                title="2. Kişi (1. Oda Arkadaşı) Bilgileri"
+                title={capacity === 3 ? "2. Kişi (1. Oda Arkadaşı) Bilgileri" : "2. Kişi (Oda Arkadaşı) Bilgileri"}
                 guestNumber={2}
                 guest={roommate}
                 onChange={onRoommateChange}
@@ -494,15 +563,17 @@ export function RoomOccupantsForm({
                 errors={errors}
               />
 
-              {/* 3. Kişi */}
-              <AdultGuestInputs
-                title="3. Kişi (2. Oda Arkadaşı) Bilgileri"
-                guestNumber={3}
-                guest={roommate2}
-                onChange={onRoommate2Change}
-                prefix="roommate2"
-                errors={errors}
-              />
+              {/* 3. Kişi (Yalnızca 3 Kişilik Odalar için) */}
+              {capacity === 3 && (
+                <AdultGuestInputs
+                  title="3. Kişi (2. Oda Arkadaşı) Bilgileri"
+                  guestNumber={3}
+                  guest={roommate2}
+                  onChange={onRoommate2Change}
+                  prefix="roommate2"
+                  errors={errors}
+                />
+              )}
             </div>
           )}
         </div>
@@ -547,11 +618,11 @@ export function RoomOccupantsForm({
               <p className="text-xs text-muted-foreground mt-0.5">
                 {isFamilyRoom
                   ? "Tüm oda tek seferde tahsil edilir (2 Yetişkin + Çocuklar)"
-                  : hasRoommate
+                  : isGroupRoomBooking
                   ? capacity === 3
                     ? "3 kişinin toplam ücreti (Tüm Oda)"
                     : "2 kişinin toplam ücreti (Tüm Oda)"
-                  : "Yalnızca kendi adınıza 1 kişilik ücret"}
+                  : "Yalnızca kendi adınıza 1 kişilik ücret (Oda arkadaşı eşleştirmeli)"}
               </p>
             </div>
             <span className="t-data text-xl md:text-2xl font-bold text-ink">
@@ -579,7 +650,7 @@ function AdultGuestInputs({
   prefix: string;
   errors?: Record<string, string>;
 }) {
-  const updateField = (field: keyof AdultGuest, value: string) => {
+  const updateField = (field: keyof AdultGuest, value: any) => {
     onChange({
       ...guest,
       [field]: value,
@@ -754,6 +825,15 @@ function AdultGuestInputs({
             onChange={(e) => updateField("gorev", e.target.value)}
             placeholder="Kulüp Başkanı, Üye, vb. (opsiyonel)"
             className="field-input"
+          />
+        </div>
+
+        {/* Bağışçı Türü (Donation Type) */}
+        <div className="md:col-span-2 pt-2 border-t border-rule">
+          <DonorTypeCheckboxes
+            selected={guest.donorTypes ?? []}
+            onChange={(types) => updateField("donorTypes", types)}
+            idPrefix={`${prefix}_donor`}
           />
         </div>
       </div>
