@@ -92,7 +92,7 @@ export function OtpVerification({
           type="text"
           inputMode="numeric"
           autoComplete="one-time-code"
-          placeholder="12345678"
+          placeholder="123456"
           value={otp}
           onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 8))}
           required
@@ -101,7 +101,7 @@ export function OtpVerification({
           className="field-input t-data tracking-[0.3em]"
         />
         <p id="otp-help" className="mt-2 text-[0.8125rem] text-muted-foreground">
-          {email} adresine gönderdiğimiz sekiz haneli kodu girin.
+          {email} adresine gönderdiğimiz doğrulama kodunu girin.
         </p>
       </div>
 
