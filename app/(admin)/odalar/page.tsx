@@ -1,9 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { BedDouble, Users, CheckCircle, Clock } from "lucide-react";
+import { BedDouble, Users, CheckCircle, Clock, UserCheck } from "lucide-react";
 import { AdminListControls } from "@/components/admin-list-controls";
 import { RemoveMember, DeleteRoom, AddMember } from "./room-actions";
 import { RoomSearch } from "./room-search";
+import { ExportRoomsCsv } from "./export-rooms-csv";
 import { dutyLabel } from "@/lib/duties";
+import { findMatchingUser, CandidateUser } from "@/lib/room-matching";
 
 interface RoomMember {
   id: string;
@@ -13,14 +15,25 @@ interface RoomMember {
   gorev: string | null;
   gender: string | null;
   package_id: string | null;
+  room_registration_type?: string | null;
+  roommate_preference_1?: string | null;
+  roommate_preference_2?: string | null;
   packages: { name: string } | null;
 }
 
 interface Room {
   id: string;
   capacity: number;
+  remaining_capacity?: number;
   created_by: string | null;
-  profiles: { first_name: string | null; last_name: string | null } | null;
+  profiles: {
+    id?: string;
+    first_name: string | null;
+    last_name: string | null;
+    room_registration_type?: string | null;
+    roommate_preference_1?: string | null;
+    roommate_preference_2?: string | null;
+  } | null;
 }
 
 const PAGE_SIZE = 10;
@@ -45,25 +58,29 @@ export default async function OdalarPage({
 
   const admin = createAdminClient();
 
-  // Fetch all rooms with creator info
+  // Fetch all rooms with creator info and preferences
   const { data: allRooms } = await admin
     .from("rooms")
-    .select("id, capacity, remaining_capacity, created_by, profiles!created_by(first_name, last_name)")
+    .select("id, capacity, remaining_capacity, created_by, profiles!created_by(id, first_name, last_name, room_registration_type, roommate_preference_1, roommate_preference_2)")
     .order("created_at", { ascending: true });
 
   const rooms = (allRooms ?? []) as unknown as (Room & { remaining_capacity?: number })[];
 
   // Fetch all profiles and room_guests that have a room_id (batch query instead of N+1)
   const roomIds = rooms.map((r) => r.id);
-  const [{ data: allMembers }, { data: allGuests }] = await Promise.all([
+  const [{ data: allMembers }, { data: allGuests }, { data: allCandidatesData }] = await Promise.all([
     admin
       .from("profiles")
-      .select("id, first_name, last_name, club, gorev, gender, room_id, package_id, packages!package_id(name)")
+      .select("id, first_name, last_name, club, gorev, gender, room_id, package_id, room_registration_type, roommate_preference_1, roommate_preference_2, packages!package_id(name)")
       .in("room_id", roomIds),
     admin
       .from("room_guests")
       .select("id, first_name, last_name, club, gender, room_id, guest_type, age")
       .in("room_id", roomIds),
+    admin
+      .from("profiles")
+      .select("id, first_name, last_name, room_id")
+      .not("first_name", "is", null),
   ]);
 
   const members = (allMembers ?? []) as unknown as (RoomMember & { room_id: string })[];
@@ -139,6 +156,23 @@ export default async function OdalarPage({
     }
   }
 
+  // User room number map for candidate matching
+  const userRoomNumberMap = new Map<string, number>();
+  enrichedRooms.forEach((r, idx) => {
+    const roomNum = idx + 1;
+    for (const m of r.members) {
+      userRoomNumberMap.set(m.id, roomNum);
+    }
+  });
+
+  const candidates: CandidateUser[] = (allCandidatesData ?? []).map((c) => ({
+    id: c.id,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    room_id: c.room_id,
+    room_number: userRoomNumberMap.get(c.id) ?? null,
+  }));
+
   // Summary counts
   const totalCount = enrichedRooms.length;
   const fullCount = enrichedRooms.filter((r) => r.isFull).length;
@@ -185,7 +219,7 @@ export default async function OdalarPage({
             {totalCount} Oda
           </span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
           <span className="flex items-center gap-1.5 t-note text-ink">
             <CheckCircle className="w-3.5 h-3.5 shrink-0" />
             {fullCount} Dolu
@@ -194,6 +228,7 @@ export default async function OdalarPage({
             <Clock className="w-3.5 h-3.5 shrink-0" />
             {availableCount} Boş Yer Var
           </span>
+          <ExportRoomsCsv />
         </div>
       </div>
 
@@ -216,6 +251,19 @@ export default async function OdalarPage({
                 (u) => !room.members.some((m) => m.id === u.id)
               )
             : [];
+
+          // Preferences of room creator or primary profile
+          const creatorProfile =
+            (room.profiles as any) ||
+            room.members.find((m) => m.id === room.created_by) ||
+            room.members[0];
+
+          const declaredPrefs = [
+            creatorProfile?.roommate_preference_1,
+            creatorProfile?.roommate_preference_2,
+          ].filter(Boolean) as string[];
+
+          const emptySlotsCount = Math.max(0, room.capacity - room.members.length);
 
           return (
             <div key={room.id} className="room-plain p-3 sm:p-5 space-y-3">
@@ -319,6 +367,70 @@ export default async function OdalarPage({
                     )}
                   </div>
                 ))}
+
+                {/* Expected Roommates & Empty Slots */}
+                {!room.isSoloPackage && emptySlotsCount > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-dashed border-ink/20">
+                    {Array.from({ length: emptySlotsCount }).map((_, slotIdx) => {
+                      const expectedName = declaredPrefs[slotIdx];
+                      const matchInfo = expectedName
+                        ? findMatchingUser(expectedName, candidates, creatorProfile?.id)
+                        : null;
+
+                      if (expectedName) {
+                        return (
+                          <div
+                            key={`expected-${slotIdx}`}
+                            className="flex items-center gap-3 p-2 bg-ink/[0.03] border border-dashed border-ink/30"
+                          >
+                            <div className="w-7 h-7 border border-dashed border-ink/40 flex items-center justify-center shrink-0">
+                              <UserCheck className="w-3.5 h-3.5 text-muted-foreground" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-display text-xs tracking-wider text-muted-foreground truncate">
+                                Beklenen Oda Arkadaşı:{" "}
+                                <span className="font-bold text-foreground">
+                                  {expectedName}
+                                </span>
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                                  Bireysel Tercih
+                                </span>
+                                <span className="text-muted-foreground/40">·</span>
+                                {matchInfo ? (
+                                  <span className="text-[9px] font-bold tracking-wider text-ink">
+                                    ✓ {matchInfo.room_number ? `Kayıt Mevcut (Oda ${matchInfo.room_number})` : "Kayıt Mevcut (Oda Atanmamış)"}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] text-muted-foreground italic">
+                                    Kayıt Bekleniyor
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={`empty-${slotIdx}`}
+                          className="flex items-center gap-3 p-2 border border-dashed border-ink/15 opacity-60"
+                        >
+                          <div className="w-7 h-7 border border-dashed border-ink/20 flex items-center justify-center shrink-0">
+                            <Users className="w-3.5 h-3.5 text-muted-foreground/50" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-display text-xs tracking-wider text-muted-foreground">
+                              Boş Kontenjan ({slotIdx + 1}. Boş Yer)
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {room.members.length === 0 && (
                   <p className="t-note text-muted-foreground">
                     Bu odada henüz kimse yok
