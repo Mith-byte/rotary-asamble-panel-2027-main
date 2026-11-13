@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isAdminEmail } from "@/lib/admin";
 
 async function verifyAdmin() {
   const supabase = await createClient();
@@ -11,13 +12,15 @@ async function verifyAdmin() {
   if (!user) return null;
 
   const admin = createAdminClient();
+  const isAdmin = isAdminEmail(user.email);
+
   const { data: profile } = await admin
     .from("profiles")
     .select("role")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (profile?.role !== "admin") return null;
+  if (profile?.role !== "admin" && !isAdmin) return null;
   return { user, admin };
 }
 

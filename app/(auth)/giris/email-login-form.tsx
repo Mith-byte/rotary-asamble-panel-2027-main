@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { sendLoginOtp, resendLoginOtp } from "@/lib/actions/auth";
 import { OtpVerification } from "@/components/otp-verification";
 import { Room } from "@/components/plan/room";
+import { isAdminEmail } from "@/lib/admin";
 
 export function EmailLoginForm() {
   const [email, setEmail] = useState("");
@@ -39,7 +40,23 @@ export function EmailLoginForm() {
 
       if (error) return error.message;
 
-      const isAdmin = data.user?.user_metadata?.role === "admin";
+      let isAdmin =
+        data.user?.user_metadata?.role === "admin" ||
+        isAdminEmail(data.user?.email) ||
+        isAdminEmail(email);
+
+      if (!isAdmin && data.user?.id) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", data.user.id)
+          .maybeSingle();
+
+        if (profile?.role === "admin") {
+          isAdmin = true;
+        }
+      }
+
       router.push(isAdmin ? "/kullanicilar" : "/");
       router.refresh();
       

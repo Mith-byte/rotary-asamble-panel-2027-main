@@ -4,47 +4,65 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { checkOtpCooldown, recordOtpSent } from "@/lib/otp-rate-limit";
+import { isAdminEmail } from "@/lib/admin";
 
 export async function sendLoginOtp(email: string) {
   const admin = createAdminClient();
+  const normalizedEmail = email.trim().toLowerCase();
+  const isAdmin = isAdminEmail(normalizedEmail);
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("first_name, email")
-    .eq("email", email)
-    .single();
+    .select("first_name, email, role")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
 
-  if (!profile?.first_name) {
+  if (!isAdmin && !profile?.first_name && profile?.role !== "admin") {
     return { success: false, error: "Bu e-posta adresiyle kayıtlı hesap bulunamadı" };
   }
 
   const supabase = await createClient();
-  await supabase.auth.signInWithOtp({ email });
-  recordOtpSent(email);
+  await supabase.auth.signInWithOtp({
+    email: normalizedEmail,
+    options: {
+      shouldCreateUser: true,
+      data: isAdmin ? { role: "admin" } : undefined,
+    },
+  });
+  recordOtpSent(normalizedEmail);
 
   return { success: true };
 }
 
 export async function resendLoginOtp(email: string) {
-  const cooldown = checkOtpCooldown(email);
+  const normalizedEmail = email.trim().toLowerCase();
+  const cooldown = checkOtpCooldown(normalizedEmail);
   if (!cooldown.allowed) {
     return { success: false, remainingSeconds: cooldown.remainingSeconds };
   }
 
   const admin = createAdminClient();
+  const isAdmin = isAdminEmail(normalizedEmail);
+
   const { data: profile } = await admin
     .from("profiles")
-    .select("first_name, email")
-    .eq("email", email)
-    .single();
+    .select("first_name, email, role")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
 
-  if (!profile?.first_name) {
+  if (!isAdmin && !profile?.first_name && profile?.role !== "admin") {
     return { success: false };
   }
 
   const supabase = await createClient();
-  await supabase.auth.signInWithOtp({ email });
-  recordOtpSent(email);
+  await supabase.auth.signInWithOtp({
+    email: normalizedEmail,
+    options: {
+      shouldCreateUser: true,
+      data: isAdmin ? { role: "admin" } : undefined,
+    },
+  });
+  recordOtpSent(normalizedEmail);
 
   return { success: true };
 }

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { dutyLabelWithTerm } from "@/lib/duties";
 import { InvitationsIsland } from "./oda-planlama/pending-invitations";
 import { HOST_CLUB, getClub } from "@/lib/clubs";
@@ -11,6 +12,7 @@ import { Dimension } from "@/components/plan/dimension";
 import { Empty } from "@/components/plan/empty";
 import { PackageChips, PriceNotIssued } from "@/components/plan/package-chips";
 import { event, daysUntilAssembly } from "@/lib/event";
+import { isAdminEmail } from "@/lib/admin";
 
 interface Package {
   name: string;
@@ -48,14 +50,33 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: profile } = await supabase
+  if (!user) redirect("/giris");
+
+  const admin = createAdminClient();
+  const isAdmin = isAdminEmail(user.email);
+
+  const { data: profile } = await admin
     .from("profiles")
-    .select("first_name, last_name, club, gorev, phone, email, pricing_type, status, total_amount, has_roommate, room_id, packages!package_id(*)")
-    .eq("id", user!.id)
-    .single();
+    .select("first_name, last_name, club, gorev, phone, email, pricing_type, status, total_amount, has_roommate, room_id, role, packages!package_id(*)")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile?.role === "admin" || isAdmin) {
+    if (isAdmin && profile && profile.role !== "admin") {
+      await admin
+        .from("profiles")
+        .update({
+          role: "admin",
+          first_name: profile.first_name || "Admin",
+          last_name: profile.last_name || "Yöneticisi",
+          status: "accepted",
+        })
+        .eq("id", user.id);
+    }
+    redirect("/kullanicilar");
+  }
 
   // Fetch received invitations
-  const admin = createAdminClient();
   const { data: receivedRaw } = await supabase
     .from("room_invitations")
     .select("id, room_id, invited_by")

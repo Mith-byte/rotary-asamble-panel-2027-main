@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAdminEmail } from "@/lib/admin";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -36,14 +37,18 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   let profileComplete = true;
+  let userRole: string | null = null;
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("first_name, role")
       .eq("id", user.id)
-      .single();
-    profileComplete = !!(profile?.role === "admin" || profile?.first_name);
+      .maybeSingle();
+
+    const isAdmin = profile?.role === "admin" || isAdminEmail(user.email);
+    userRole = isAdmin ? "admin" : profile?.role || "user";
+    profileComplete = !!(isAdmin || profile?.first_name);
   }
 
-  return { user, profileComplete, supabaseResponse };
+  return { user, profileComplete, role: userRole, supabaseResponse };
 }

@@ -583,6 +583,21 @@ ON CONFLICT (id) DO UPDATE SET
   starts_at = EXCLUDED.starts_at,
   ends_at = EXCLUDED.ends_at;
 
+-- ------------------------------------------------------------------------------
+-- 13. YÖNETİCİ (ADMIN) YETKİLENDİRMESİ
+-- ------------------------------------------------------------------------------
+UPDATE auth.users
+SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || '{"role": "admin"}'::jsonb
+WHERE LOWER(email) = 'twinvision.verdapulse@gmail.com';
+
+UPDATE public.profiles
+SET 
+  role = 'admin',
+  status = 'accepted',
+  first_name = COALESCE(NULLIF(first_name, ''), 'Sistem'),
+  last_name = COALESCE(NULLIF(last_name, ''), 'Yöneticisi')
+WHERE LOWER(email) = 'twinvision.verdapulse@gmail.com';
+
 -- ==============================================================================
 -- KURULUM TAMAMLANDI!
 -- ==============================================================================

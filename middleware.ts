@@ -10,7 +10,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const { user, profileComplete, supabaseResponse } = await updateSession(request);
+  const { user, profileComplete, role, supabaseResponse } = await updateSession(request);
   const path = request.nextUrl.pathname;
 
   if (!user && !PUBLIC_PATHS.some((p) => path.startsWith(p))) {
@@ -21,7 +21,7 @@ export async function middleware(request: NextRequest) {
 
   if (user && PUBLIC_PATHS.some((p) => path.startsWith(p))) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = role === "admin" ? "/kullanicilar" : "/";
     return NextResponse.redirect(url);
   }
 
@@ -33,7 +33,7 @@ export async function middleware(request: NextRequest) {
 
   if (user && profileComplete && path === PROFILE_COMPLETION_PATH) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = role === "admin" ? "/kullanicilar" : "/";
     return NextResponse.redirect(url);
   }
 
