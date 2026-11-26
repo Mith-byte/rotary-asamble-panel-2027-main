@@ -36,6 +36,79 @@ function extractXmlTag(xml: string, tag: string): string {
 }
 
 /**
+ * Zamanlama saldırılarına (timing attacks) karşı sabit zamanlı (constant-time) güvenli hash karşılaştırması
+ */
+function safeCompareHash(a?: string | null, b?: string | null): boolean {
+  const normA = (a || "").trim();
+  const normB = (b || "").trim();
+  if (!normA || !normB) return false;
+
+  const bufA = Buffer.from(normA, "utf-8");
+  const bufB = Buffer.from(normB, "utf-8");
+  if (bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB)) {
+    return true;
+  }
+
+  // Base64 veya Hex durumlarında küçük harf eşleşme kontrolü (Yine timingSafeEqual ile)
+  const lowerA = Buffer.from(normA.toLowerCase(), "utf-8");
+  const lowerB = Buffer.from(normB.toLowerCase(), "utf-8");
+  if (lowerA.length === lowerB.length && crypto.timingSafeEqual(lowerA, lowerB)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * KVKK ve PCI-DSS Log & Veritabanı Sanitizasyonu
+ * Kredi kartı numarası (pan), son kullanma tarihi, CVV/cv2 ve mağaza gizli anahtarlarını maskeler/siler.
+ */
+function sanitizePosData(data: Record<string, any>): Record<string, any> {
+  if (!data || typeof data !== "object") return {};
+
+  const sensitiveRedactPatterns = [
+    "cv2",
+    "cvv",
+    "cvc",
+    "securitycode",
+    "ecom_payment_card_expdate_month",
+    "ecom_payment_card_expdate_year",
+    "expdate",
+    "exp_date",
+    "expires",
+    "storekey",
+    "password",
+  ];
+
+  const sensitiveMaskPatterns = [
+    "pan",
+    "cardnumber",
+    "card_number",
+    "creditcard",
+    "cc_number",
+  ];
+
+  const sanitized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    const lowerKey = key.toLowerCase();
+
+    if (sensitiveRedactPatterns.some((p) => lowerKey.includes(p))) {
+      sanitized[key] = "[REDACTED]";
+    } else if (sensitiveMaskPatterns.some((p) => lowerKey.includes(p))) {
+      const valStr = String(value || "").replace(/\s+/g, "");
+      if (valStr.length >= 8) {
+        sanitized[key] = `${valStr.slice(0, 4)} **** **** ${valStr.slice(-4)}`;
+      } else {
+        sanitized[key] = "[MASKED_CARD]";
+      }
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return sanitized;
+}
+
+/**
  * Nestpay Dinamik Callback Hash Doğrulama (ver3 ve ver2)
  *
  * 1. ver3 Yöntemi: Bankadan dönen tüm parametreler (hash, encoding, countdown hariç)
@@ -204,20 +277,18 @@ function verifyNestpayCallbackHash(
   console.log("Bankadan Gelen HASH:", incomingHash);
   console.log("Bankadan Gelen HASHPARAMS:", hashParams || "(YOK)");
   console.log("Bankadan Gelen HASHPARAMSVAL:", hashParamsVal || "(YOK)");
-  console.log("HASHPARAMS Parametre Dökümü:", paramBreakdown);
+  console.log("HASHPARAMS Parametre Dökümü:", sanitizePosData(paramBreakdown));
   console.log("Kullanılan storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
   console.log("Hesaplanan Adaylar:");
   candidates.forEach((c) => {
-    const isMatch = c.computedHash === incomingHash || c.computedHash.toLowerCase() === incomingHash.toLowerCase();
-    console.log(`  [${isMatch ? "EŞLEŞTİ OK" : "UYUŞMADI"}] ${c.name}`);
+    const isMatch = safeCompareHash(c.computedHash, incomingHash);
+    console.log(`  [${isMatch ? "EŞLEŞTİ (timingSafeEqual OK)" : "UYUŞMADI"}] ${c.name}`);
     console.log(`     Hesaplanan: ${c.computedHash}`);
     console.log(`     Ham Metin:  ${c.plainString.replace(storeKey, "***STOREKEY***")}`);
   });
   console.log("=====================================================================");
 
-  const matched = candidates.find(
-    (c) => c.computedHash === incomingHash || c.computedHash.toLowerCase() === incomingHash.toLowerCase()
-  );
+  const matched = candidates.find((c) => safeCompareHash(c.computedHash, incomingHash));
   if (matched) {
     return { valid: true, matchedMethod: matched.name };
   }
@@ -290,7 +361,7 @@ async function handleCallback(request: NextRequest) {
   console.log("URL:", request.url);
   console.log("Method:", request.method);
   console.log("Content-Type:", contentType);
-  console.log("Tüm Parametreler (JSON):", JSON.stringify(rawData, null, 2));
+  console.log("Tüm Parametreler (Sanitized):", JSON.stringify(sanitizePosData(rawData), null, 2));
   console.log("=========================================================================");
 
   // Vercel tek satır JSON kesilmesine karşı kritik alanların açık ve net loglanması:
@@ -344,10 +415,11 @@ async function handleCallback(request: NextRequest) {
   const eci = (rawData.eci || "").trim();
   const xid = (rawData.xid || "").trim();
 
-  const storeKey = (
-    process.env.ISBANK_STORE_KEY ||
-    "EgeKonngre55*"
-  ).replace(/^["']|["']$/g, "").trim();
+  const storeKey = (process.env.ISBANK_STORE_KEY || "").replace(/^["']|["']$/g, "").trim();
+  if (!storeKey) {
+    console.error("[payment/callback] ISBANK_STORE_KEY ortam değişkeni tanımlanmamış!");
+    return handleFailure(oid, "Sanal POS mağaza anahtarı yapılandırılmamış.", isWebhook, siteUrl);
+  }
 
   const clientId = (
     process.env.ISBANK_CLIENT_ID ||
@@ -358,67 +430,92 @@ async function handleCallback(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // 4. VERİTABANI İŞLEM KAYDI KONTROLÜ
-  let existingTx: { id: string; user_id: string; amount: number; status: string } | null = null;
-  if (oid) {
-    const { data: tx } = await admin
-      .from("payment_transactions")
-      .select("id, user_id, amount, status")
-      .eq("merchant_order_id", oid)
-      .maybeSingle();
-
-    if (tx) {
-      existingTx = tx as any;
-    }
+  if (!oid) {
+    console.error("[payment/callback] OID (Sipariş numarası) eksik!");
+    return handleFailure("", "Sipariş numarası (oid) bulunamadı.", isWebhook, siteUrl);
   }
 
+  // 4. VERİTABANI İŞLEM KAYDI KONTROLÜ
+  const { data: tx, error: txFetchError } = await admin
+    .from("payment_transactions")
+    .select("id, user_id, amount, currency, status")
+    .eq("merchant_order_id", oid)
+    .maybeSingle();
+
+  if (txFetchError || !tx) {
+    console.error(`[payment/callback] Güvenlik uyarısı: ${oid} için veritabanında işlem kaydı bulunamadı!`);
+    return handleFailure(oid, "Geçersiz sipariş: İşlem kaydı bulunamadı.", isWebhook, siteUrl);
+  }
+
+  const existingTx = tx as { id: string; user_id: string; amount: number; currency: string; status: string };
+
   // REPLAY ATTACK KORUMASI: Daha önce tamamlandıysa mükerrer işlem yapma
-  if (existingTx && (existingTx.status === "completed" || existingTx.status === "paid")) {
+  if (existingTx.status === "completed" || existingTx.status === "paid") {
     console.log(`[payment/callback] Mükerrer işlem (Idempotent): OID ${oid} zaten tamamlanmış.`);
     return isWebhook
       ? NextResponse.json({ status: "OK", alreadyProcessed: true, orderId: oid })
       : redirectTo(`/odeme/basarili?oid=${encodeURIComponent(oid)}&transId=${encodeURIComponent(transId)}`, siteUrl);
   }
 
-  // 5. NESTPAY CALLBACK HASH İMZA DOĞRULAMASI
-  // Bankadan HASHPARAMS veya HASH geldiyse imza doğrulaması yap
-  if (rawData.HASHPARAMS || rawData.hashparams || rawData.HASH || rawData.hash) {
-    const hashCheck = verifyNestpayCallbackHash(rawData, storeKey, clientId);
-    if (!hashCheck.valid) {
-      console.error("[payment/callback] Güvenlik uyarısı: Hash doğrulaması başarısız!", hashCheck.reason);
-      await markTransactionFailed(admin, oid, rawData, `Güvenlik imzası doğrulanmadı: ${hashCheck.reason}`);
-      return handleFailure(
-        oid,
-        `Güvenlik imzası doğrulanamadı: ${hashCheck.reason}`,
-        isWebhook,
-        siteUrl
-      );
-    }
-    console.log(`[payment/callback] Nestpay callback hash doğrulaması başarılı! (Kullanılan Yöntem: ${hashCheck.matchedMethod})`);
+  if (existingTx.status !== "pending") {
+    console.warn(`[payment/callback] İşlem durumu 'pending' değil (${existingTx.status}): OID ${oid}`);
+    return handleFailure(oid, `Bu işlem daha önce sonuçlandırılmış (${existingTx.status}).`, isWebhook, siteUrl);
   }
 
-  // Kullanıcı ID tespiti
-  let userId: string | null = existingTx?.user_id || null;
-  if (!userId && oid) {
-    const match = oid.match(/^usr_([a-f0-9-]{36})_/);
-    if (match) {
-      userId = match[1];
-    }
+  // 5. NESTPAY CALLBACK HASH İMZA DOĞRULAMASI (ZORUNLU - Asla atlanamaz)
+  const incomingHash = (rawData.HASH || rawData.hash || "").trim();
+  if (!incomingHash) {
+    const failMsg = "Güvenlik ihlali: Banka yanıtında HASH imzası bulunamadı.";
+    console.error(`[payment/callback] ${failMsg}`);
+    await markTransactionFailed(admin, oid, rawData, failMsg);
+    return handleFailure(oid, "Güvenlik imzası eksik veya geçersiz.", isWebhook, siteUrl);
   }
 
-  // 6. 3D SECURE DOĞRULAMA KONTROLÜ
-  // mdStatus: 1 (Tam Doğrulama), 2-3-4 (Half/Accepted 3D). 0, 5, 6, 7, 8 başarısızdır.
+  const hashCheck = verifyNestpayCallbackHash(rawData, storeKey, clientId);
+  if (!hashCheck.valid) {
+    const failMsg = `Güvenlik ihlali: HASH doğrulaması başarısız! ${hashCheck.reason}`;
+    console.error(`[payment/callback] ${failMsg}`);
+    await markTransactionFailed(admin, oid, rawData, failMsg);
+    return handleFailure(oid, `Güvenlik imzası doğrulanamadı: ${hashCheck.reason}`, isWebhook, siteUrl);
+  }
+  console.log(`[payment/callback] Nestpay callback hash doğrulaması başarılı! (${hashCheck.matchedMethod})`);
+
+  // Kullanıcı ID tespiti: Yalnızca doğrulanmış veritabanı kaydından alınır
+  const userId: string = existingTx.user_id;
+
+  // 6. TUTAR VE PARA BİRİMİ DOĞRULAMASI (Kuruşu kuruşuna eşleşme)
+  const rawBankAmount = (rawData.amount || rawData.Amount || "").trim().replace(",", ".");
+  const bankAmountNum = parseFloat(rawBankAmount);
+  const expectedAmount = Number(existingTx.amount);
+
+  if (isNaN(bankAmountNum) || Math.abs(bankAmountNum - expectedAmount) > 0.01) {
+    const errorMsg = `Tutar uyuşmazlığı tespit edildi! Bankadan gelen: ${rawBankAmount}, Beklenen: ${expectedAmount.toFixed(2)}`;
+    console.error(`[payment/callback] ${errorMsg}`);
+    await markTransactionFailed(admin, oid, rawData, errorMsg);
+    return handleFailure(oid, "Ödenen tutar ile beklenen sipariş tutarı uyuşmuyor.", isWebhook, siteUrl);
+  }
+
+  const bankCurrency = (rawData.currency || rawData.Currency || "").trim();
+  if (bankCurrency && bankCurrency !== "949" && bankCurrency !== "TRY" && bankCurrency !== existingTx.currency) {
+    const errorMsg = `Para birimi uyuşmazlığı tespit edildi! Bankadan gelen: ${bankCurrency}, Beklenen: 949/TRY`;
+    console.error(`[payment/callback] ${errorMsg}`);
+    await markTransactionFailed(admin, oid, rawData, errorMsg);
+    return handleFailure(oid, "Ödeme para birimi uyuşmuyor.", isWebhook, siteUrl);
+  }
+
+  // 7. 3D SECURE DOĞRULAMA KONTROLÜ
+  // mdStatus: 1 (Tam Doğrulama), 2-3-4 (Accepted 3D). 0, 5, 6, 7, 8 başarısızdır.
   const is3dAuthenticated = ["1", "2", "3", "4"].includes(mdStatus);
 
-  if (mdStatus && !is3dAuthenticated) {
-    const failReason = errMsg || `3D Secure doğrulaması başarısız oldu (mdStatus: ${mdStatus}).`;
+  if (!is3dAuthenticated) {
+    const failReason = errMsg || `3D Secure doğrulaması başarısız oldu (mdStatus: ${mdStatus || "BOŞ"}).`;
     console.warn(`[payment/callback] 3D doğrulama hatası: OID=${oid}, Neden=${failReason}`);
     await markTransactionFailed(admin, oid, rawData, failReason);
     return handleFailure(oid, failReason, isWebhook, siteUrl);
   }
 
-  // 7. '3D PAY' MODELİ KONTROLÜ (Doğrudan est3Dgate üzerinden provizyon alındıysa)
-  const is3dPayApproved = response === "Approved" && (procReturnCode === "00" || !procReturnCode);
+  // 8. '3D PAY' MODELİ KONTROLÜ (Doğrudan est3Dgate üzerinden provizyon alındıysa)
+  const is3dPayApproved = response === "Approved" && procReturnCode === "00";
 
   if (is3dPayApproved) {
     console.log(`[payment/callback] '3D Pay' doğrudan onaylandı: OID=${oid}, TransId=${transId}`);
@@ -526,9 +623,11 @@ async function markTransactionCompleted(
       .eq("merchant_order_id", oid)
       .maybeSingle();
 
+    const sanitizedCallback = sanitizePosData(posResponse);
+
     const mergedResponse = {
       ...(currentTx?.pos_response || {}),
-      bank_callback: posResponse,
+      bank_callback: sanitizedCallback,
       authCode,
       completed_at: new Date().toISOString(),
     };
@@ -541,7 +640,8 @@ async function markTransactionCompleted(
         pos_response: mergedResponse,
         updated_at: new Date().toISOString(),
       })
-      .eq("merchant_order_id", oid);
+      .eq("merchant_order_id", oid)
+      .eq("status", "pending");
   }
 
   if (userId) {
@@ -568,9 +668,11 @@ async function markTransactionFailed(
       .eq("merchant_order_id", oid)
       .maybeSingle();
 
+    const sanitizedCallback = sanitizePosData(posResponse);
+
     const mergedResponse = {
       ...(currentTx?.pos_response || {}),
-      bank_callback: posResponse,
+      bank_callback: sanitizedCallback,
       error_detail: errorMessage,
       failed_at: new Date().toISOString(),
     };
@@ -582,7 +684,8 @@ async function markTransactionFailed(
         pos_response: mergedResponse,
         updated_at: new Date().toISOString(),
       })
-      .eq("merchant_order_id", oid);
+      .eq("merchant_order_id", oid)
+      .eq("status", "pending");
   }
 }
 

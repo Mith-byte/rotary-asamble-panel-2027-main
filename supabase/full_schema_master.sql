@@ -269,7 +269,7 @@ BEGIN
   END IF;
 
   IF NEW.status IS DISTINCT FROM OLD.status THEN
-    RAISE EXCEPTION 'Yetkisiz işlem: Kayıt durumu (status) doğrudan değiştirilemez.';
+    RAISE EXCEPTION 'Yetkisiz işlem: Kayıt ve ödeme durumu (status) doğrudan değiştirilemez.';
   END IF;
 
   IF NEW.total_amount IS DISTINCT FROM OLD.total_amount THEN
@@ -278,6 +278,13 @@ BEGIN
 
   IF NEW.pricing_type IS DISTINCT FROM OLD.pricing_type THEN
     RAISE EXCEPTION 'Yetkisiz işlem: Fiyatlandırma dönemi (pricing_type) doğrudan değiştirilemez.';
+  END IF;
+
+  -- Ödemesi tamamlanmış kullanıcının paket veya oda bilgisini manipüle etmesini engelle
+  IF OLD.status = 'accepted' THEN
+    IF NEW.package_id IS DISTINCT FROM OLD.package_id THEN
+      RAISE EXCEPTION 'Yetkisiz işlem: Ödemesi tamamlanmış bir kaydın paketi doğrudan değiştirilemez. Lütfen yönetimle iletişime geçin.';
+    END IF;
   END IF;
 
   RETURN NEW;

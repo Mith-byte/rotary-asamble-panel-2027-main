@@ -186,15 +186,17 @@ async function handlePaymentInit(request: NextRequest) {
   console.log(`[payment/init] Kur Dönüşümü: ${finalAmountEur} EUR * ${eurRate} (${rateSource}) = ${amountFormatted} TRY`);
 
   // 6. İŞ BANKASI NESTPAY AYARLARI
-  const clientId = (
-    process.env.ISBANK_CLIENT_ID ||
-    "700669788069"
-  ).replace(/^["']|["']$/g, "").trim();
+  const clientId = (process.env.ISBANK_CLIENT_ID || "").replace(/^["']|["']$/g, "").trim();
+  if (!clientId) {
+    console.error("[payment/init] ISBANK_CLIENT_ID ortam değişkeni yapılandırılmamış!");
+    return respondError("Sanal POS müşteri numarası (clientId) yapılandırılmamış.", 500);
+  }
 
-  const storeKey = (
-    process.env.ISBANK_STORE_KEY ||
-    "EgeKonngre55*"
-  ).replace(/^["']|["']$/g, "").trim();
+  const storeKey = (process.env.ISBANK_STORE_KEY || "").replace(/^["']|["']$/g, "").trim();
+  if (!storeKey) {
+    console.error("[payment/init] ISBANK_STORE_KEY ortam değişkeni yapılandırılmamış!");
+    return respondError("Sanal POS mağaza anahtarı (storeKey) yapılandırılmamış.", 500);
+  }
 
   const gateUrl = (
     process.env.ISBANK_3D_GATE_URL ||
@@ -265,18 +267,16 @@ async function handlePaymentInit(request: NextRequest) {
   // SHA-512 Base64 digest
   const hash = crypto.createHash("sha512").update(hashString, "utf-8").digest("base64");
 
-  console.log("---- HASH DEBUG (INIT ver3 - TRY) BAŞLANGICI ----");
-  console.log("1. Orijinal EUR Tutarı:", finalAmountEur, "EUR");
-  console.log("2. Uygulanan EUR/TRY Kuru:", eurRate, `(Kaynak: ${rateSource})`);
-  console.log("3. Bankaya Gönderilen TL Tutarı (amount):", amountFormatted, "TRY (currency: 949)");
-  console.log("4. Sıralı Anahtarlar:", sortedKeys.join(", "));
-  sortedKeys.forEach((key, index) => {
-    console.log(`   ${index + 1}. ${key}:`, hashParamsMap[key]);
-  });
-  console.log("5. storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
-  console.log("6. BIRLESIM (hashString):", hashString.replace(storeKey, "***STOREKEY***"));
-  console.log("7. Üretilen HASH (SHA-512 Base64):", hash);
-  console.log("---- HASH DEBUG (INIT ver3 - TRY) BITISI ----");
+  if (process.env.NODE_ENV !== "production") {
+    console.log("---- HASH DEBUG (INIT ver3 - TRY) BAŞLANGICI ----");
+    console.log("1. Orijinal EUR Tutarı:", finalAmountEur, "EUR");
+    console.log("2. Uygulanan EUR/TRY Kuru:", eurRate, `(Kaynak: ${rateSource})`);
+    console.log("3. Bankaya Gönderilen TL Tutarı (amount):", amountFormatted, "TRY (currency: 949)");
+    console.log("4. Sıralı Anahtarlar:", sortedKeys.join(", "));
+    console.log("5. storeKey (Maskeli):", `${storeKey.slice(0, 3)}***${storeKey.slice(-2)} (Uzunluk: ${storeKey.length})`);
+    console.log("6. Üretilen HASH (SHA-512 Base64):", hash);
+    console.log("---- HASH DEBUG (INIT ver3 - TRY) BITISI ----");
+  }
 
   console.log("[payment/init] Nestpay est3Dgate Hash üretildi (ver3):", {
     gateUrl,
